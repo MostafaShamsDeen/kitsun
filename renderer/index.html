@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>Multi Claude</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="titlebar">
+    <button id="home" class="tb-btn brand-mark" type="button" data-hint="Home · Ctrl+Alt+0" aria-label="Home"><span class="bm" aria-hidden="true"><i></i><i></i></span></button>
+    <nav id="tabs" class="tabs" role="tablist" aria-label="Claude accounts"></nav>
+    <button id="add-tab" class="tb-btn" type="button" data-hint="Add an account" aria-label="Add an account">+</button>
+    <span class="spacer"></span>
+    <span id="hint" class="hint" aria-hidden="true"></span>
+    <div id="alerts" class="alerts"></div>
+    <button id="search" class="tb-btn" type="button" data-hint="Search sessions and switch · Ctrl+Alt+K" aria-label="Search sessions and switch" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>
+    </button>
+    <button id="split" class="tb-btn" type="button" data-hint="Layout" aria-label="Layout" aria-haspopup="menu" aria-expanded="false">
+      <svg viewBox="0 0 20 14" aria-hidden="true"><rect x="1" y="1" width="8" height="12" rx="1.5"/><rect x="11" y="1" width="8" height="12" rx="1.5"/></svg>
+    </button>
+    <button id="manage" class="tb-btn" type="button" data-hint="Manage accounts" aria-label="Manage accounts">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+    <button id="settings" class="tb-btn" type="button" data-hint="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+    </button>
+  </header>
+
+  <main id="panes" class="panes"></main>
+
+  <dialog id="manage-dialog" class="dialog">
+    <h2>Accounts</h2>
+    <p class="muted">Each account runs as its own copy of the Claude app, with its own sign-in, chats and usage.</p>
+    <ul id="manage-list" class="manage-list"></ul>
+    <div class="dialog-actions">
+      <div class="left"><button type="button" id="manage-add" class="btn">+ Add account</button></div>
+      <div class="right"><button type="button" id="manage-close" class="btn primary">Done</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="settings-dialog" class="dialog">
+    <h2>Settings</h2>
+    <div id="settings-list" class="settings-list"></div>
+    <p id="settings-error" class="form-error" role="alert"></p>
+    <div class="dialog-actions">
+      <div class="left"></div>
+      <div class="right"><button type="button" id="settings-close" class="btn primary" autofocus>Done</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="account-dialog" class="dialog">
+    <form id="account-form">
+      <h2 id="account-dialog-title">Add account</h2>
+      <label class="field">
+        <span>Name</span>
+        <input id="f-name" maxlength="40" required placeholder="e.g. Personal, Work, Client X">
+      </label>
+      <div class="field">
+        <span>Colour</span>
+        <div id="f-colors" class="swatches"></div>
+      </div>
+      <label class="check">
+        <input type="checkbox" id="f-share">
+        <span>
+          Share Claude Code settings, memory and local history with the main account
+          <small class="muted" id="f-share-hint"></small>
+        </span>
+      </label>
+      <label class="field" id="f-chrome-box" hidden>
+        <span>Chrome profile</span>
+        <select id="f-chrome"></select>
+        <small class="muted" id="f-chrome-hint"></small>
+      </label>
+      <details id="f-link-box" class="link-box">
+        <summary>Finish signing in with a link from the Claude email</summary>
+        <p class="muted">Only needed if the sign-in email has no code. Right-click the email's button, choose Copy link, and paste it here.</p>
+        <div class="row">
+          <input id="f-link" placeholder="https://claude.ai/magic-link#…" spellcheck="false" autocomplete="off">
+          <button type="button" id="f-link-go" class="btn">Sign in</button>
+        </div>
+      </details>
+      <p id="f-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <div class="left">
+          <button type="button" id="f-stop" class="btn">Stop</button>
+          <button type="button" id="f-delete" class="btn danger">Remove account</button>
+        </div>
+        <div class="right">
+          <button type="button" id="f-cancel" class="btn ghost">Cancel</button>
+          <button type="submit" class="btn primary">Save</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog" class="dialog small">
+    <form method="dialog">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-text" class="muted"></p>
+      <div class="dialog-actions">
+        <div class="left"></div>
+        <div class="right">
+          <button value="cancel" class="btn ghost">Cancel</button>
+          <button value="ok" id="confirm-ok" class="btn danger">Confirm</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="layout-menu" class="dialog menu" aria-label="Layout">
+    <div id="layout-list" class="menu-list" role="menu" aria-label="Layout"></div>
+  </dialog>
+
+  <dialog id="handoff-menu" class="dialog menu handoff-menu" aria-label="Continue in another account">
+    <div id="handoff-head"></div>
+    <div id="handoff-list" class="menu-list" role="menu" aria-label="Accounts"></div>
+  </dialog>
+
+  <dialog id="switcher" class="dialog switcher" aria-label="Search and switch">
+    <div class="sw-box">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>
+      <input id="sw-input" type="text" role="combobox" aria-expanded="true" aria-controls="sw-list" aria-autocomplete="list"
+        placeholder="Search sessions in every account, or go somewhere…" spellcheck="false" autocomplete="off" maxlength="200">
+      <kbd>Esc</kbd>
+    </div>
+    <div id="sw-list" class="sw-list" role="listbox" aria-label="Results"></div>
+    <div class="sw-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span class="sw-foot-handoff"><kbd>Ctrl</kbd><kbd>Enter</kbd> continue in another account</span><span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>K</kbd> from any tab</span></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+  <script src="home.js"></script>
+</body>
+</html>
