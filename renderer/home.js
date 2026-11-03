@@ -694,12 +694,13 @@ const Home = (() => {
       el('header', { class: 'acard-head' }, [
         el('span', { class: 'dot' }),
         el('h3', { text: v.name }),
-        el('span', { class: 'tag', text: v.account.kind === 'app' ? 'Desktop app' : 'Website' }),
+        el('span', { class: 'tag', text: v.account.kind === 'app' ? 'Desktop app' : v.account.kind === 'terminal' ? 'Terminal' : 'Website' }),
         el('span', { class: 'spacer' }),
         r.pill,
       ]),
       r.meta,
-      el('p', { class: 'recent-empty muted', text: v.account.kind === 'app' ? 'A program on this PC, kept in this tab. Closing the tab closes it.' : 'Its own sign-in, separate from your browser and every other tab.' }),
+      el('p', { class: 'recent-empty muted', text: v.account.kind === 'app' ? 'A program on this PC, kept in this tab. Closing the tab closes it.'
+        : v.account.kind === 'terminal' ? `PowerShell in ${v.account.cwd}. It keeps running while you're in other tabs.` : 'Its own sign-in, separate from your browser and every other tab.' }),
       el('footer', { class: 'acard-foot' }, [el('span'), el('span', { class: 'acard-btns' }, [r.action])]),
     ]);
     fillLive(r, v);

@@ -42,7 +42,7 @@ const KIND_NAMES = { claude: 'Claude app', web: 'Website', app: 'Desktop app', t
 const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 const fileName = (p) => String(p || '').split(/[\\/]/).pop();
 // Where a website or app tab points: its site, or its program.
-const whereOf = (a) => (a.kind === 'web' ? hostOf(a.url) : a.kind === 'app' ? fileName(a.exe) : '');
+const whereOf = (a) => (a.kind === 'web' ? hostOf(a.url) : a.kind === 'app' ? fileName(a.exe) : a.kind === 'terminal' ? a.command || 'PowerShell' : '');
 const PANES_IN = { single: 1, split: 2, triple: 3 };
 const currentLayout = () => (PANES_IN[ui.layout] ? ui.layout : ui.split ? 'split' : 'single');
 const paneCount = () => PANES_IN[currentLayout()];
@@ -289,9 +289,11 @@ function tabNotice(account, s) {
   }
   const app = account.kind === 'app';
   const r = s.exit ? s.exit.reason : null;
+  const what = account.kind === 'terminal' ? `Open it to start ${account.command || 'PowerShell'} in ${account.cwd}.`
+    : app ? `Open it to start ${fileName(account.exe)} here, in this pane.` : `Open it again to load ${hostOf(account.url) || 'the page'}. You stay signed in.`;
   return el('div', { class: 'notice' }, [
     el('h2', { text: r === 'stopped' ? `You closed ${account.name}` : r === 'closed' ? `${account.name} was closed` : `${account.name} isn't open` }),
-    el('p', { text: app ? `Open it to start ${fileName(account.exe)} here, in this pane.` : `Open it again to load ${hostOf(account.url) || 'the page'}. You stay signed in.` }),
+    el('p', { text: what }),
     s.error ? el('p', { class: 'notice-error', text: s.error }) : null,
     el('button', { class: 'btn primary', type: 'button', text: `Open ${account.name}`, onclick: () => api.startAccount(account.id) }),
   ]);
@@ -599,7 +601,7 @@ const manageDialog = $('#manage-dialog');
 function renderManageList() {
   $('#manage-list').replaceChildren(...accounts.map((a) => el('li', { style: `--acc:${a.color}` }, [
     el('span', { class: 'name', text: a.name }),
-    el('span', { class: 'tag', text: a.kind === 'web' ? `Website · ${hostOf(a.url)}` : a.kind === 'app' ? `Desktop app · ${fileName(a.exe)}` : a.main ? 'Your normal Claude app' : 'Separate Claude copy' }),
+    el('span', { class: 'tag', text: a.kind === 'web' ? `Website · ${hostOf(a.url)}` : a.kind === 'app' ? `Desktop app · ${fileName(a.exe)}` : a.kind === 'terminal' ? `Terminal · ${a.command || 'PowerShell'}` : a.main ? 'Your normal Claude app' : 'Separate Claude copy' }),
     el('button', { class: 'btn ghost', type: 'button', text: 'Edit', onclick: () => openAccountDialog(a) }),
   ])));
 }
@@ -634,16 +636,28 @@ function openAccountDialog(account, { kind = 'claude', entry = null, pick = null
   dialogPick = account ? null : pick;
   const web = dialogKind === 'web';
   const app = dialogKind === 'app';
+  const terminal = dialogKind === 'terminal';
   const claude = dialogKind === 'claude';
   const named = entry && !entry.custom ? entry.name : pick ? pick.name : '';
   $('#account-dialog-title').textContent = account ? `Edit ${account.name}`
-    : web ? (named ? `Add ${named}` : 'Add a website') : app ? (named ? `Add ${named}` : 'Add an app') : 'Add a Claude account';
+    : web ? (named ? `Add ${named}` : 'Add a website') : app ? (named ? `Add ${named}` : 'Add an app')
+      : terminal ? (named ? `Add ${named}` : 'Add a terminal') : 'Add a Claude account';
   // A second ChatGPT tab is "ChatGPT 2", and so on.
   let suggested = named;
   for (let n = 2; suggested && accounts.some((a) => a.name === suggested); n++) suggested = `${named} ${n}`;
   $('#f-name').value = account ? account.name : claude ? '' : suggested;
-  $('#f-name').placeholder = web ? 'e.g. ChatGPT, Gemini (work)' : app ? 'e.g. VS Code, LM Studio' : 'e.g. Personal, Work, Client X';
+  $('#f-name').placeholder = web ? 'e.g. ChatGPT, Gemini (work)' : app ? 'e.g. VS Code, LM Studio' : terminal ? 'e.g. Codex, PowerShell' : 'e.g. Personal, Work, Client X';
   $('#f-app-box').hidden = !app;
+  // A terminal: its command (typed only for "Any command"; a catalogue entry's is fixed) and the folder it starts in.
+  const customTerm = terminal && (account ? !account.catalogId || account.catalogId === 'custom-terminal' : !entry || entry.custom);
+  $('#f-term-box').hidden = !terminal;
+  $('#f-command').value = account ? account.command || '' : entry && entry.command ? entry.command : '';
+  $('#f-command').readOnly = !customTerm;
+  $('#f-command-hint').textContent = customTerm ? 'It runs in PowerShell when the tab opens; when it ends you are left at a prompt. Empty: just PowerShell.'
+    : 'It runs in PowerShell when the tab opens; when it ends you are left at a prompt.';
+  $('#f-cwd-box').hidden = !terminal;
+  $('#f-cwd').value = account && terminal ? account.cwd : '';
+  $('#f-cwd').placeholder = 'Your user folder';
   $('#f-app-file').textContent = account && app ? account.exe : pick ? pick.file : 'Found on this PC.';
   $('#f-url-box').hidden = !web;
   $('#f-url').required = web;
@@ -748,6 +762,10 @@ $('#account-form').addEventListener('submit', async (e) => {
     if (url && !/^[a-z][a-z0-9+.-]*:/i.test(url)) url = `https://${url}`;
     input.url = url;
   } else if (dialogKind === 'claude') input.shareCode = $('#f-share').checked;
+  if (dialogKind === 'terminal') {
+    if (!$('#f-command').readOnly) input.command = $('#f-command').value.trim();
+    if ($('#f-cwd').value.trim()) input.cwd = $('#f-cwd').value.trim();
+  }
   if (isNew) {
     input.kind = dialogKind;
     if (dialogEntry) input.catalogId = dialogEntry.id;
@@ -758,7 +776,8 @@ $('#account-form').addEventListener('submit', async (e) => {
   const saved = await api.saveAccount(input);
   if (!saved) {
     $('#f-error').textContent = web ? 'That address can\'t be used. It has to start with https://.'
-      : dialogKind === 'app' ? 'Couldn\'t add that app. Close this and pick it again.' : 'Couldn\'t save the account.';
+      : dialogKind === 'app' ? 'Couldn\'t add that app. Close this and pick it again.'
+        : dialogKind === 'terminal' ? 'That folder doesn\'t exist. Pick it with Browse.' : 'Couldn\'t save the account.';
     return;
   }
   accounts = saved;
@@ -769,11 +788,16 @@ $('#account-form').addEventListener('submit', async (e) => {
     if (manageDialog.open) manageDialog.close();
     await show(id);
     toast(web ? `Opening ${name}… Sign in inside the tab; it's separate from your browser.`
-      : dialogKind === 'app' ? `Opening ${name}…` : `Starting ${name}… Sign in when its Claude window appears.`);
+      : dialogKind === 'app' || dialogKind === 'terminal' ? `Opening ${name}…` : `Starting ${name}… Sign in when its Claude window appears.`);
   }
 });
 
 $('#f-cancel').addEventListener('click', () => dialog.close());
+$('#f-cwd-pick').addEventListener('click', async () => {
+  if (!api.pickFolder) return;
+  const folder = await api.pickFolder($('#f-cwd').value.trim() || null).catch(() => null);
+  if (folder) $('#f-cwd').value = folder;
+});
 
 $('#f-link-go').addEventListener('click', async () => {
   if (!editing) return;
@@ -786,7 +810,9 @@ $('#f-link-go').addEventListener('click', async () => {
 $('#f-delete').addEventListener('click', async () => {
   const account = editing;
   if (!account) return;
-  const ok = await confirmDialog(`Remove ${account.name}?`, account.kind === 'app'
+  const ok = await confirmDialog(`Remove ${account.name}?`, account.kind === 'terminal'
+    ? 'This removes the tab and ends whatever is running in it. Your files aren\'t touched.'
+    : account.kind === 'app'
     ? `This removes the tab only. ${fileName(account.exe)} stays installed, and if it is open it moves back to a window of its own.`
     : account.kind === 'web'
     ? `This closes ${account.name} and deletes its sign-in, cookies and saved data on this PC. Your account on ${hostOf(account.url) || 'the site'} isn't affected.`
@@ -826,7 +852,9 @@ async function stopAccount(account) {
     return;
   }
   if (account.kind !== 'claude') {
-    const close = await confirmDialog(`Close ${account.name}?`, account.kind === 'app'
+    const close = await confirmDialog(`Close ${account.name}?`, account.kind === 'terminal'
+      ? 'This ends whatever is running in it, as closing a terminal window does. Open it again for a fresh one.'
+      : account.kind === 'app'
       ? 'This closes it as its own close button would. If it has unsaved work, it may ask you about it in its tab first.'
       : 'This closes the page to free its memory. You stay signed in, and can open it again from its tab.', 'Close', { primary: true });
     if (!close) return;
@@ -1468,7 +1496,7 @@ function choosePickerEntry(e) {
     toast('The Claude desktop app isn\'t installed yet.', { label: 'Get it', onClick: () => getIt(e) });
     return;
   }
-  if (e.kind === 'app' && !e.custom && e.installed === false) {
+  if ((e.kind === 'app' || e.kind === 'terminal') && !e.custom && e.installed === false) {
     toast(`${e.name} isn't installed on this PC.`, e.canGet ? { label: 'Get it', onClick: () => getIt(e) } : null);
     return;
   }

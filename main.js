@@ -32,7 +32,7 @@ const OLD_APP = { name: 'Multi Claude', id: 'local.multi-claude' };
 if (process.env.KITSUN_USER_DATA && !app.isPackaged) app.setPath('userData', path.resolve(process.env.KITSUN_USER_DATA));
 // The kinds of tab. lib/attention, search, stats, chrome and handoff are Claude-only and
 // only ever get Claude tabs (claudeTabs()).
-const TAB_KINDS = ['claude', 'web', 'app'];
+const TAB_KINDS = ['claude', 'web', 'app', 'terminal'];
 // A Store app's id as Windows starts it: <package family>!<app id>.
 const AUMID_RE = /^[\w.-]+_[a-z0-9]+![\w.-]+$/i;
 const ACCOUNT_ID_RE = /^[a-z0-9-]{1,64}$/;
@@ -136,6 +136,12 @@ function sanitizeAccount(a) {
     const exe = typeof a.exe === 'string' && path.isAbsolute(a.exe) && /\.exe$/i.test(a.exe) ? path.normalize(a.exe) : null;
     const aumid = typeof a.aumid === 'string' && AUMID_RE.test(a.aumid) ? a.aumid : null;
     return exe ? { ...base, exe, aumid, main: false } : null;
+  }
+  if (kind === 'terminal') {
+    // command: what runs in PowerShell when it opens (null: just PowerShell); cwd: the folder it starts in.
+    const command = typeof a.command === 'string' && a.command.trim() ? a.command.trim().slice(0, 500) : null;
+    const cwd = typeof a.cwd === 'string' && path.isAbsolute(a.cwd) ? path.normalize(a.cwd) : os.homedir();
+    return { ...base, command, cwd, main: false };
   }
   return {
     ...base,
@@ -446,7 +452,7 @@ function undockAll({ show = false } = {}) {
 // A website tab is a WebContentsView laid over its pane body, as a Claude window is docked over its pane. Each tab has
 // its own persistent browser partition, so its sign-ins, cookies and storage are its own: two ChatGPT tabs can be two
 // accounts. Stopping one closes the page (freeing its memory); its sign-in stays.
-const webViews = new Map(); // tab id -> WebContentsView
+const webViews = new Map(); // tab id -> WebContentsView (website tabs, and terminal tabs' pages)
 const partitionOf = (id) => `persist:tab-${id}`;
 // Sign-in pages a site may open in a popup (and expect to talk back to): they open in a small window with the tab's own
 // partition. Other links to other sites go to the default browser.
@@ -727,6 +733,155 @@ function watchApps() {
   }, 1000);
 }
 
+// ---------- terminal tabs ----------
+
+// A terminal tab runs PowerShell in a pseudo console (node-pty, over Windows' ConPTY) owned by main, and shows it in a
+// WebContentsView with xterm.js (renderer/terminal.html), laid over its pane like a website tab. A catalogue entry's
+// command (codex, gemini, …) runs in it at once (-NoExit -Command), so when the tool ends you are left at a prompt in the
+// same folder. It keeps running while its tab is hidden; the page keeps the scrollback, and main keeps the latest
+// output (TERM_BACKLOG) so a page that reloads draws it again. Close (or typing exit) ends it with everything it runs.
+const TERM_BACKLOG = 256 * 1024;
+const terms = new Map(); // tab id -> { pty, backlog, pending, flush, ready, wcId }
+const termByWc = new Map(); // a terminal page's webContents id -> its tab id
+
+// Packaged, node-pty is loaded from app.asar.unpacked: it starts a worker and a console helper from its own files,
+// which can't be inside the archive. Loaded on first use, so a broken pty never stops Kitsun starting.
+let ptyModule = null;
+function loadPty() {
+  const base = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules') : path.join(__dirname, 'node_modules');
+  ptyModule ??= require(path.join(base, '@lydell', 'node-pty'));
+  return ptyModule;
+}
+
+const powershellExe = () => path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+
+function termFailed(account, error) {
+  const i = inst(account.id);
+  Object.assign(i, { status: 'stopped', error });
+  console.log(`${account.name}: ${error}`);
+  pushStatus();
+  return { ok: false, error };
+}
+
+function startTerminal(account) {
+  const i = inst(account.id);
+  if (!mainWindow || closing) return { ok: false };
+  if (terms.has(account.id)) return { ok: true };
+  i.stoppedByUser = false;
+  i.exit = null;
+  i.error = null;
+  const cwd = fs.existsSync(account.cwd) ? account.cwd : os.homedir();
+  const env = { ...cleanEnv(), COLORTERM: 'truecolor', TERM_PROGRAM: 'Kitsun' };
+  let p;
+  try {
+    p = loadPty().spawn(powershellExe(), account.command ? ['-NoLogo', '-NoExit', '-Command', account.command] : ['-NoLogo'],
+      { name: 'xterm-256color', cols: 100, rows: 30, cwd, env });
+  } catch (err) {
+    return termFailed(account, `${account.name} couldn't start: ${err.message}`);
+  }
+  const t = { pty: p, backlog: '', pending: '', flush: null, ready: false, wcId: null };
+  terms.set(account.id, t);
+  p.onData((data) => {
+    t.backlog = (t.backlog + data).slice(-TERM_BACKLOG);
+    if (!t.ready) return;
+    // Output comes in many small pieces; they are sent to the page in one message per frame.
+    t.pending += data;
+    t.flush ??= setTimeout(() => {
+      t.flush = null;
+      const view = webViews.get(account.id);
+      if (view && !view.webContents.isDestroyed()) view.webContents.send('term:data', t.pending);
+      t.pending = '';
+    }, 16);
+  });
+  p.onExit(() => {
+    if (terms.get(account.id) !== t) return;
+    // exit typed in it, or the window closing: the tab shows it closed, with Open.
+    endTerminal(account.id);
+    if (!i.stoppedByUser) i.exit = { reason: 'closed', at: Date.now(), reopening: false, gaveUp: false };
+    layout();
+    pushStatus();
+  });
+
+  const view = new WebContentsView({
+    webPreferences: { partition: 'kitsun-terminal', sandbox: true, contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, 'preload-terminal.js') },
+  });
+  view.setBackgroundColor('#0d0f15');
+  view.setVisible(false);
+  const wc = view.webContents;
+  t.wcId = wc.id;
+  termByWc.set(wc.id, account.id);
+  wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+  wc.on('will-navigate', (e) => e.preventDefault());
+  wc.on('focus', () => {
+    if (state.ui.home || paneCount() < 2) return;
+    const pn = visiblePanes().find((q) => state.ui.panes[q] === account.id);
+    if (pn !== undefined && state.ui.focused !== pn) { state.ui.focused = pn; pushUi(); }
+  });
+  wc.on('render-process-gone', (_e, d) => {
+    if (closing || d.reason === 'clean-exit') return;
+    t.ready = false; // the reloaded page asks again (term:ready) and gets the backlog
+    setTimeout(() => { if (!wc.isDestroyed()) wc.reload(); }, 1000);
+  });
+  // Dev aid: KITSUN_TERM_TEST=<folder> types a command through the page's own bridge once it has loaded, then logs the
+  // end of the output and saves a picture of the page, so a run from source can be checked without touching the keyboard.
+  if (process.env.KITSUN_TERM_TEST && !app.isPackaged) {
+    wc.once('did-finish-load', () => setTimeout(async () => {
+      if (wc.isDestroyed()) return;
+      await wc.executeJavaScript("window.kitsunTerm.write('Write-Output \"kitsun-ok $($PSVersionTable.PSVersion)\"; Get-Location\\r')");
+      setTimeout(async () => {
+        if (wc.isDestroyed()) return;
+        console.log(`term ${account.id}: ${JSON.stringify(t.backlog.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').slice(-300))}`);
+        const img = await wc.capturePage().catch(() => null);
+        if (img) fs.writeFileSync(path.join(process.env.KITSUN_TERM_TEST, `${account.id}.png`), img.toPNG());
+      }, 4000);
+    }, 3000));
+  }
+  mainWindow.contentView.addChildView(view);
+  webViews.set(account.id, view);
+  wc.loadFile(path.join(__dirname, 'renderer', 'terminal.html'));
+  console.log(`${account.name}: started PowerShell${account.command ? ` running ${account.command}` : ''} in ${cwd}`);
+  i.status = 'docked';
+  i.startedAt = Date.now();
+  layout();
+  pushStatus();
+  return { ok: true };
+}
+
+// Ends the pseudo console (and everything running in it) and closes its page.
+function endTerminal(id) {
+  const t = terms.get(id);
+  terms.delete(id);
+  if (t) {
+    clearTimeout(t.flush);
+    termByWc.delete(t.wcId);
+    try { t.pty.kill(); } catch { /* already gone */ }
+  }
+  stopWeb(id);
+}
+
+// The terminal page's own calls: each is answered only for the tab whose page sent it.
+const termOf = (event) => { const id = termByWc.get(event.sender.id); return id ? { id, t: terms.get(id) } : null; };
+ipcMain.handle('term:ready', (event) => {
+  const x = termOf(event);
+  if (!x || !x.t) return null;
+  x.t.ready = true;
+  x.t.pending = '';
+  const a = accountById(x.id);
+  return { backlog: x.t.backlog, name: a ? a.name : '', color: a ? a.color : null };
+});
+ipcMain.on('term:input', (event, data) => {
+  const x = termOf(event);
+  if (x && x.t && typeof data === 'string' && data.length <= 1024 * 1024) x.t.pty.write(data);
+});
+ipcMain.on('term:resize', (event, cols, rows) => {
+  const x = termOf(event);
+  if (!x || !x.t || !Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 1 || cols > 1000 || rows > 500) return;
+  try { x.t.pty.resize(cols, rows); } catch { /* it just exited */ }
+});
+ipcMain.on('term:copy', (event, text) => { if (termOf(event) && typeof text === 'string') clipboard.writeText(text); });
+ipcMain.handle('term:paste', (event) => (termOf(event) ? clipboard.readText() : ''));
+ipcMain.on('term:open-link', (event, url) => { if (termOf(event)) openExternal(String(url)); });
+
 // ---------- layout ----------
 
 let stats = null; // the home screen's statistics collector, created once the app is ready
@@ -993,6 +1148,7 @@ async function startAccount(id, { auto = false } = {}) {
     return startWeb(account);
   }
   if (account.kind === 'app') return startApp(account);
+  if (account.kind === 'terminal') return startTerminal(account);
   if (i.status === 'external') return { ok: false, error: 'external' };
   if (i.status === 'stopping') return { ok: false, error: `${account.name} is still quitting. Try again in a moment.` };
   if (!auto) {
@@ -1481,6 +1637,14 @@ async function stopAccount(id, { force = false } = {}) {
     return { ok: true };
   }
   if (account.kind === 'app') return stopApp(account);
+  if (account.kind === 'terminal') {
+    i.stoppedByUser = true;
+    i.exit = { reason: 'stopped', at: Date.now(), reopening: false, gaveUp: false };
+    endTerminal(id);
+    layout();
+    pushStatus();
+    return { ok: true };
+  }
   if (i.status === 'stopping') return { ok: false, error: `${account.name} is already stopping.` };
   if (!(await scanProcesses())) return { ok: false, error: 'Could not check whether its Claude is running. Try again.' };
   if (i.status === 'external') return { ok: false, error: `${account.name} is open in its own window. Quit it from that window.` };
@@ -1835,6 +1999,7 @@ function createWindow({ hidden = false } = {}) {
     for (const i of instances.values()) cancelRestart(i);
     globalShortcut.unregisterAll();
     undockAll();
+    for (const id of [...terms.keys()]) endTerminal(id);
   };
   mainWindow.on('close', (event) => {
     // The close button hides to the tray. Quitting from the tray menu sets `closing` first (before-quit),
@@ -2206,7 +2371,7 @@ ipcMain.handle('account:restart-here', async (event, id) => {
 ipcMain.handle('account:save', async (event, input) => {
   if (!fromShell(event) || !input || typeof input !== 'object') return null;
   const existing = accountById(input.id);
-  const kind = existing ? existing.kind : ['web', 'app'].includes(input.kind) ? input.kind : 'claude';
+  const kind = existing ? existing.kind : ['web', 'app', 'terminal'].includes(input.kind) ? input.kind : 'claude';
   const entry = !existing && typeof input.catalogId === 'string' ? findEntry(input.catalogId) : null;
   if (entry && entry.kind !== kind) return null;
   if (kind === 'web') {
@@ -2222,6 +2387,23 @@ ipcMain.handle('account:save', async (event, input) => {
       if (!ACCOUNT_ID_RE.test(input.id) || accountById(input.id)) return null;
       state.accounts.push(next);
     }
+    saveState();
+    updateTrayMenu();
+    return state.accounts;
+  }
+  if (kind === 'terminal') {
+    // A catalogue entry's command is its own (e.g. codex); only "Any command" (or a tab from no entry) takes the typed
+    // one, which is the person's own command line, run as typed. The folder must exist; a change applies on next open.
+    const custom = existing ? !existing.catalogId || findEntry(existing.catalogId).custom : !entry || entry.custom;
+    const command = custom ? (Object.hasOwn(input, 'command') ? input.command : existing && existing.command) : (existing ? existing.command : entry.command);
+    let cwd = existing ? existing.cwd : os.homedir();
+    if (Object.hasOwn(input, 'cwd')) {
+      try { if (typeof input.cwd === 'string' && path.isAbsolute(input.cwd) && fs.statSync(input.cwd).isDirectory()) cwd = input.cwd; else return null; } catch { return null; }
+    }
+    if (!existing && (!ACCOUNT_ID_RE.test(input.id) || accountById(input.id))) return null;
+    const next = sanitizeAccount({ id: input.id, kind, name: input.name, color: input.color, command, cwd, catalogId: existing ? existing.catalogId : entry && entry.id });
+    if (!next) return null;
+    if (existing) Object.assign(existing, next); else state.accounts.push(next);
     saveState();
     updateTrayMenu();
     return state.accounts;
@@ -2288,6 +2470,10 @@ ipcMain.handle('account:remove', async (event, id) => {
     try { await session.fromPartition(partitionOf(id)).clearStorageData(); } catch (err) { console.error('Could not clear', id, err); }
     try { fs.rmSync(path.join(app.getPath('userData'), 'Partitions', `tab-${id}`), { recursive: true, force: true }); } catch { /* cleared above; the folder goes next start */ }
     preparedSessions.delete(id);
+    return forgetTab(id);
+  }
+  if (account.kind === 'terminal') {
+    endTerminal(id);
     return forgetTab(id);
   }
   if (account.kind === 'app') {
@@ -2362,6 +2548,18 @@ ipcMain.handle('catalog:get-it', (event, id) => {
 // "Any app", or an app the catalogue couldn't find the exe of: the user picks the program. Main keeps the path and gives
 // the page a token for account:save, so the page never names a program to run.
 let pickedApp = null;
+// A terminal tab's starting folder, picked in a folder dialog (the page then sends the path with account:save, which
+// checks it is a folder).
+ipcMain.handle('folder:pick', async (event, current) => {
+  if (!fromShell(event)) return null;
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: 'Pick the folder the terminal starts in',
+    defaultPath: typeof current === 'string' && path.isAbsolute(current) ? current : os.homedir(),
+    properties: ['openDirectory'],
+  });
+  return r.canceled ? null : r.filePaths[0] || null;
+});
+
 ipcMain.handle('app:pick', async (event) => {
   if (!fromShell(event)) return null;
   const r = await dialog.showOpenDialog(mainWindow, {

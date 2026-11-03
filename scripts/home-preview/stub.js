@@ -150,6 +150,8 @@
   const accounts = picked.map(({ id, name, color, main, shareCode }) => ({ id, kind: 'claude', name, color, main: Boolean(main), shareCode }));
   // &app=1 adds a VS Code desktop app tab (its pane shows the "closed" notice: nothing is docked in a browser).
   if (params.get('app') === '1') accounts.push({ id: 'vscode', kind: 'app', name: 'VS Code', color: '#4fb8c9', exe: 'D:\\Microsoft VS Code\\Code.exe', aumid: null, catalogId: 'vscode-app', main: false });
+  // &term=1 adds a closed PowerShell terminal tab.
+  if (params.get('term') === '1') accounts.push({ id: 'pwsh', kind: 'terminal', name: 'PowerShell', color: '#5b9dff', command: null, cwd: 'D:\\Claud', catalogId: 'powershell', main: false });
   if (params.get('web') === '1') accounts.push({ id: 'chatgpt', kind: 'web', name: 'ChatGPT', color: '#3fb68b', url: 'https://chatgpt.com/', catalogId: 'chatgpt-web', main: false });
   // A few catalogue entries in lib/catalog.js's shape (the real list is longer); LM Studio and Codex aren't installed.
   const CATALOG_SAMPLE = {
@@ -163,11 +165,13 @@
       ['notebooklm-web', 'web', 'Research', 'NotebookLM', 'Google', '#9b72cb', 'Chat with your documents; audio overviews.', 'https://notebooklm.google.com/', null],
       ['vscode-app', 'app', 'Desktop apps', 'VS Code', 'Microsoft', '#3fb6e8', 'Editor with Copilot and AI extensions.', null, true],
       ['lmstudio-app', 'app', 'Local models', 'LM Studio', 'LM Studio', '#6c5ce7', 'Download and chat with models on your own PC.', null, false],
+      ['powershell', 'terminal', 'Terminal', 'PowerShell', 'Microsoft', '#5b9dff', 'A plain terminal, for any command-line tool.', null, true],
       ['codex-cli', 'terminal', 'Terminal', 'Codex CLI', 'OpenAI', '#10a37f', 'OpenAI\'s coding agent in a terminal.', null, false],
+      ['custom-terminal', 'terminal', 'Your own', 'Any command', '', '#9b968c', 'Run any command-line tool in a terminal.', null, null],
       ['custom-web', 'web', 'Your own', 'Any website', '', '#9b968c', 'Type the address of any AI site.', null, null],
       ['custom-app', 'app', 'Your own', 'Any app', '', '#9b968c', 'Pick a program installed on this PC.', null, null],
     ].map(([id, kind, group, name, by, color, blurb, url, installed]) => ({
-      id, kind, group, name, by, color, blurb, url, installed, custom: id.startsWith('custom-'), canGet: installed === false || id === 'claude', soon: !['claude', 'web', 'app'].includes(kind),
+      id, kind, group, name, by, color, blurb, url, installed, custom: id.startsWith('custom-'), canGet: installed === false || id === 'claude', soon: false, command: id === 'codex-cli' ? 'codex' : null,
       exeKnown: kind === 'app' ? installed === true : null,
     })),
   };
@@ -521,6 +525,7 @@
     getCatalog: () => later(300, copy(CATALOG_SAMPLE)),
     getIt: () => later(20, true),
     // Like main's app:pick, without the file dialog: a made-up program.
+    pickFolder: () => later(20, 'D:\\Claud\\multi-claude'),
     pickApp: () => later(20, { token: 'stub-token', file: 'C:\\Users\\you\\AppData\\Local\\Programs\\Some App\\SomeApp.exe', name: 'SomeApp' }),
     onChrome: (fn) => listeners.chrome.push(fn),
     // Like main's openChrome: nothing is started here.

@@ -66,6 +66,18 @@
         <input id="f-url" type="url" maxlength="2000" placeholder="https://…" spellcheck="false" autocomplete="off">
         <small class="muted">It gets its own sign-in, separate from your browser and from every other tab.</small>
       </label>
+      <div class="field" id="f-term-box" hidden>
+        <span>Command</span>
+        <input id="f-command" maxlength="500" spellcheck="false" autocomplete="off" placeholder="Leave empty for just PowerShell">
+        <small class="muted" id="f-command-hint">It runs in PowerShell when the tab opens; when it ends you are left at a prompt.</small>
+      </div>
+      <div class="field" id="f-cwd-box" hidden>
+        <span>Starts in</span>
+        <div class="row">
+          <input id="f-cwd" spellcheck="false" autocomplete="off">
+          <button class="btn" type="button" id="f-cwd-pick">Browse…</button>
+        </div>
+      </div>
       <div class="field" id="f-app-box" hidden>
         <span>Program</span>
         <code id="f-app-file" class="file"></code>
