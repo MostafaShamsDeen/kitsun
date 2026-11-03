@@ -2,7 +2,7 @@
 
 All your AIs in one window (formerly **Multi Claude**). For now every tab is a Claude account: each tab runs the real Claude desktop app (chat, Code, Cowork, projects, connectors), signed in to its own account, so every account's usage stays separate. All tabs keep running while you switch, and the layout button shows two or three side by side. More kinds of tab (desktop apps, websites, terminals) are on the way; each tab already has a `kind` in `profiles.json`.
 
-**Taking over from Multi Claude.** The first time Kitsun starts it copies `%APPDATA%Multi Claudeprofiles.json` and `stats-cache.json` into `%APPDATA%Kitsun` (the old folder is left as it was). A running Multi Claude is asked to quit (`--quit`) before anything is docked, since two apps docking the same Claude windows would fight over them. The installed copy also replaces the old login item (keeping the setting) and removes the old Start Menu shortcut.
+**Taking over from Multi Claude.** The first time Kitsun starts it copies `%APPDATA%\Multi Claude\profiles.json` and `stats-cache.json` into `%APPDATA%\Kitsun` (the old folder is left as it was). A running Multi Claude is asked to quit (`--quit`) before anything is docked, since two apps docking the same Claude windows would fight over them. The installed copy also replaces the old login item (keeping the setting) and removes the old Start Menu shortcut.
 
 ## How it works
 
