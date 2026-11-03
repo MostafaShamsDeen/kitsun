@@ -1,7 +1,7 @@
-// Multi Claude window: a tab per account; the real Claude app windows are docked over the pane bodies
+// Kitsun window: a tab per account; the real Claude app windows are docked over the pane bodies
 // by the main process, which needs to know where those bodies are.
 
-const api = window.multiClaude;
+const api = window.kitsun;
 
 const COLORS = ['#d97757', '#5b8def', '#3fb68b', '#c678dd', '#e5b84f', '#e06c9f', '#4fb8c9', '#9b968c'];
 
@@ -224,7 +224,7 @@ window.addEventListener('resize', () => requestAnimationFrame(fitAlerts));
 
 // ---------- panes ----------
 
-// Why a copy closed (status.exit.reason from main) -> what its pane says. reopening: Multi Claude is
+// Why a copy closed (status.exit.reason from main) -> what its pane says. reopening: Kitsun is
 // about to start it again; gaveUp: it closed too often for that.
 // short: the one-line form for the home screen's account card, which already shows the name.
 function closedText(account, exit) {
@@ -235,7 +235,7 @@ function closedText(account, exit) {
     return { title: `${n} closed for a Claude update`, short: `Closed for a Claude update${soon}`, text: exit.reopening ? 'Reopening it once the update is installed…' : exit.gaveUp ? 'It closed several times in a few minutes, so it wasn\'t reopened.' : '' };
   }
   if (r === 'crash') {
-    if (exit.gaveUp) return { title: `${n}'s Claude keeps closing`, short: 'Keeps closing · not reopened', text: 'It closed several times in a few minutes, so Multi Claude stopped reopening it. Start it when you\'re ready.' };
+    if (exit.gaveUp) return { title: `${n}'s Claude keeps closing`, short: 'Keeps closing · not reopened', text: 'It closed several times in a few minutes, so Kitsun stopped reopening it. Start it when you\'re ready.' };
     return { title: `${n}'s Claude closed unexpectedly`, short: `Closed unexpectedly${soon}`, text: exit.reopening ? 'Reopening it in a moment…' : '' };
   }
   if (r === 'user') return { title: `You quit ${n} from Claude's menu`, short: 'Quit from Claude\'s menu', text: '' };
@@ -806,11 +806,11 @@ function confirmDialog(title, text, okLabel, { primary = false, tag = null } = {
 const SETTINGS = [
   { key: 'startWithWindows', group: 'Startup', label: 'Start with Windows', hint: 'Opens in the tray when you sign in, with every account running.', installedOnly: true },
   { key: 'startHidden', group: 'Startup', label: 'Start in the tray', hint: 'Every account still starts. Click the tray icon to open the window.' },
-  { key: 'closeToTray', group: 'Window', label: 'Close to the tray', hint: 'The close button hides Multi Claude and your accounts keep running. Quit from the tray icon\'s menu.' },
+  { key: 'closeToTray', group: 'Window', label: 'Close to the tray', hint: 'The close button hides Kitsun and your accounts keep running. Quit from the tray icon\'s menu.' },
   { key: 'autoRestart', group: 'Keeping accounts running', label: 'Restart an account if its Claude quits', hint: 'If an account\'s Claude closes for a Claude update or crashes, it starts again in its tab (up to 3 times in 10 minutes). Never after you quit or stop it yourself.' },
   { key: 'notifyNeedsYou', group: 'Notifications', label: 'When an account needs you', hint: 'A Claude Code session in a tab you aren\'t looking at asks for permission, asks a question, or stops to wait for your answer.' },
   { key: 'notifyLimits', group: 'Notifications', label: 'When an account nears its usage limit', hint: 'It reaches 90% of its 5-hour or weekly plan limit (with the account that has the most left), or its 5-hour limit resets.' },
-  { key: 'notifyRestarts', group: 'Notifications', label: 'When Claude updates or an account freezes', hint: 'While Multi Claude is in the background: which accounts were reopened after a Claude update or crash, and any that stopped responding.' },
+  { key: 'notifyRestarts', group: 'Notifications', label: 'When Claude updates or an account freezes', hint: 'While Kitsun is in the background: which accounts were reopened after a Claude update or crash, and any that stopped responding.' },
 ];
 
 const settingsDialog = $('#settings-dialog');
@@ -1146,7 +1146,7 @@ switcher.addEventListener('mousedown', (e) => {
 });
 
 $('#search').addEventListener('click', () => openSwitcher());
-// Ctrl+Alt+K (a global shortcut in main while Multi Claude is in front) and the tray's "Search…": opens, or closes again.
+// Ctrl+Alt+K (a global shortcut in main while Kitsun is in front) and the tray's "Search…": opens, or closes again.
 if (api.onOpenSwitcher) api.onOpenSwitcher(() => { if (switcher.open) switcher.close(); else openSwitcher(); });
 
 // ---------- continue a session in another account (beta) ----------
@@ -1251,7 +1251,7 @@ async function chooseHandoffTarget(a) {
     : `${a.name}'s Claude lists the new session after a restart; you'll be asked first.`;
   // Opened before the menu closes, so the Claude windows stay hidden in between.
   const answer = confirmDialog(`Continue “${s.title}” in ${a.name}?`,
-    `Multi Claude copies this conversation into a new session in ${a.name}, so you can carry on with ${a.name}'s usage. `
+    `Kitsun copies this conversation into a new session in ${a.name}, so you can carry on with ${a.name}'s usage. `
     + `The original stays in ${from.name} as it is, and the two don't sync. The new one starts with ${a.name}'s own model, permission mode and connectors. ${after}`,
     'Continue', { primary: true, tag: 'Beta' });
   handoffMenu.close();

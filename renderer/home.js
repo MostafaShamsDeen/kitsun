@@ -517,7 +517,7 @@ const Home = (() => {
     docked: ['live', 'Live'],
     starting: ['starting', 'Starting'],
     stopped: ['stopped', 'Stopped'],
-    external: ['external', 'Open outside Multi Claude'],
+    external: ['external', 'Open outside Kitsun'],
     stopping: ['stopping', 'Stopping'],
   };
 

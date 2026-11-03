@@ -1,14 +1,14 @@
 {
-  "name": "multi-claude",
-  "productName": "Multi Claude",
-  "version": "1.0.0",
-  "description": "Run several Claude accounts side by side, each in its own isolated session",
+  "name": "kitsun",
+  "productName": "Kitsun",
+  "version": "2.0.0",
+  "description": "All your AIs in one window: Claude accounts, desktop apps, websites and terminals side by side",
   "main": "main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
     "icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-icon.ps1 && node scripts/make-icon.js",
-    "package": "electron-packager . \"Multi Claude\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=build/icon.ico --ignore=\"^/scripts($|/)\" --ignore=\"^/node_modules/koffi/(src|doc|vendor)($|/)\" --ignore=\"^/node_modules/koffi/build/koffi/(?!win32_x64)\" --asar.unpack=\"*.node\" --prune=true"
+    "package": "electron-packager . Kitsun --platform=win32 --arch=x64 --out=dist --overwrite --icon=build/icon.ico --ignore=\"^/scripts($|/)\" --ignore=\"^/node_modules/koffi/(src|doc|vendor)($|/)\" --ignore=\"^/node_modules/koffi/build/koffi/(?!win32_x64)\" --asar.unpack=\"*.node\" --prune=true"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",

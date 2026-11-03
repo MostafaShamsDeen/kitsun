@@ -1,4 +1,4 @@
-// Stand-in for preload.js's window.multiClaude, so the renderer runs in a normal browser.
+// Stand-in for preload.js's window.kitsun, so the renderer runs in a normal browser.
 // ?state=full (default) | empty (all zeros, no plan data, still scanning) | one (a single account) | two (two accounts)
 // &scan=1 shows the "counting messages" state and fires onStatsUpdated a few seconds later.
 
@@ -29,7 +29,7 @@
       folders: [['acme-spend', 38], ['multi-claude', 27], ['parts-shop', 19]],
       models: [['claude-opus-5-5', 151], ['claude-sonnet-4-5-20250929', 35]],
       recent: [
-        ['Multi Claude app', 'multi-claude', 12 * MIN, 48, 'Building the home dashboard: stats cards, charts and the hero animation'],
+        ['Kitsun app', 'multi-claude', 12 * MIN, 48, 'Building the home dashboard: stats cards, charts and the hero animation'],
         ['Acme Spend', 'acme-spend', 2 * HOUR + 5 * MIN, 31, 'Fixed the monthly roll-up; CSV export now matches the ledger'],
         ['Parts Shop barcode scan', 'parts-shop', 26 * HOUR, 19, null],
         ['OpSync outreach sequences', 'opsync', 2 * DAY, 12, 'Drafted the LinkedIn + email cadence for the pilot client'],
@@ -195,7 +195,7 @@
   const SESSIONS = {
     work: [
       item('local_w1', 'OpSync outreach sequences', 'opsync', 'waiting', 'plan', 'Wants you to approve its plan', 2 * MIN),
-      item('local_w2', 'Multi Claude app', 'multi-claude', 'working', 'working', null, 40 * SECOND),
+      item('local_w2', 'Kitsun app', 'multi-claude', 'working', 'working', null, 40 * SECOND),
       item('local_w3', 'Acme Spend', 'acme-spend', 'unseen', 'done', 'The dashboard chart now has a Day / Week / Month switch, and there\'s a "Largest purchases" card.', 25 * MIN),
     ],
     personal: [
@@ -220,7 +220,7 @@
   // simplified ranking (field weight, then recency). &searchdelay=<ms> slows the answers to show "Searching…".
   const doc = (accountId, sessionId, title, folder, ago, summary, extra = {}) => ({ accountId, sessionId, title, folder, at: NOW - ago, summary, previous: [], prompt: '', model: 'claude-opus-5-5', archived: false, ...extra });
   const SEARCH_DOCS = [
-    doc('work', 'local_s1', 'Multi Claude app', 'multi-claude', 12 * MIN, 'Building the quick switcher: search across accounts, Ctrl+Alt+K', { previous: ['Multi-account Claude desktop app'], prompt: 'one window with a tab per Claude account, each the real Claude desktop app' }),
+    doc('work', 'local_s1', 'Kitsun app', 'multi-claude', 12 * MIN, 'Building the quick switcher: search across accounts, Ctrl+Alt+K', { previous: ['Multi-account Claude desktop app'], prompt: 'one window with a tab per Claude account, each the real Claude desktop app' }),
     doc('work', 'local_s2', 'Acme Spend', 'acme-spend', 2 * HOUR + 5 * MIN, 'Fixed the monthly roll-up; CSV export now matches the ledger', { previous: ['Company card spend tracker webapp'], prompt: 'build a spend tracker for the company cards' }),
     doc('work', 'local_s3', 'OpSync outreach sequences', 'opsync', 2 * MIN, 'Wants you to approve its plan: LinkedIn + email cadence for the pilot client', { prompt: 'move the LinkedIn and email sequences into OpSync' }),
     doc('work', 'local_s4', 'Parts Shop barcode scan', 'parts-shop', 26 * HOUR, 'auto-update live; Owner\'s iPhone needs one reopen', { previous: ['Inventory management app with barcode scanning'], model: 'claude-sonnet-4-5-20250929' }),
@@ -336,7 +336,7 @@
     // Like main: an account that lands in a pane and is stopped (not by the user's Stop) starts.
     for (let q = 0; q < n; q++) {
       const s = status[panes[q]];
-      if (s && s.status === 'stopped' && !(s.exit && s.exit.reason === 'stopped')) window.multiClaude.startAccount(panes[q]);
+      if (s && s.status === 'stopped' && !(s.exit && s.exit.reason === 'stopped')) window.kitsun.startAccount(panes[q]);
     }
   }
   // After an account is removed (main runs sanitizeState): refill, and fewer panes if there aren't enough accounts left.
@@ -360,13 +360,13 @@
     if (!entries.length || entries.some(([k, v]) => !(k in DEFAULT_SETTINGS) || typeof v !== typeof DEFAULT_SETTINGS[k])) {
       return later(20, { ok: false, error: 'That setting can\'t be changed.', settings: copy(settings) });
     }
-    if (!packaged && 'startWithWindows' in changes) return later(20, { ok: false, error: 'Only the installed Multi Claude can start with Windows.', settings: copy(settings) });
+    if (!packaged && 'startWithWindows' in changes) return later(20, { ok: false, error: 'Only the installed Kitsun can start with Windows.', settings: copy(settings) });
     Object.assign(settings, changes);
     console.debug('[stub] settings', copy(settings));
     return later(20, { ok: true, settings: copy(settings) });
   };
 
-  window.multiClaude = {
+  window.kitsun = {
     getState: () => later(30, { accounts: copy(accounts), ui: copy(ui), status: copy(status), claudeInstalled: true }),
     showAccount: (id) => { if (isAccount(id)) showAccountHere(id); return later(10, copy(ui)); },
     setLayout: (name) => { if (typeof name === 'string' && Object.hasOwn(LAYOUTS, name)) setLayoutHere(name); return later(10, copy(ui)); },
@@ -477,7 +477,7 @@
       const s = status[to.id] || {};
       if (s.status === 'external') return later(600, { ok: true, sessionId, title, needsRestart: true, canRestart: false });
       if (s.status !== 'stopped') return later(600, { ok: true, sessionId, title, needsRestart: true, canRestart: true });
-      window.multiClaude.startAccount(to.id);
+      window.kitsun.startAccount(to.id);
       showAccountHere(to.id);
       pushUi();
       return later(600, { ok: true, sessionId, title, started: true, opened: true });
@@ -486,10 +486,10 @@
     restartForHandoff: async (id, sessionId) => {
       if (handoffsMade.get(sessionId) !== id) return { ok: false };
       if (status[id] && status[id].running) {
-        const r = await window.multiClaude.stopAccount(id, false);
+        const r = await window.kitsun.stopAccount(id, false);
         if (!r.ok) return r;
       }
-      window.multiClaude.startAccount(id);
+      window.kitsun.startAccount(id);
       showAccountHere(id);
       pushUi();
       return later(200, { ok: true, opened: true });
@@ -626,7 +626,7 @@
   }
 
   // For checks from the browser's console: what main would hold now.
-  window.multiClaudeStub = { ui: () => copy(ui), status: () => copy(status) };
+  window.kitsunStub = { ui: () => copy(ui), status: () => copy(status) };
 
   // With &scan=1 the first pass "finishes" after a few seconds.
   if (scanFirst && mode !== 'empty') setTimeout(() => { scanning = false; listeners.stats.forEach((fn) => fn()); }, 4000);

@@ -1,6 +1,7 @@
-// Multi Claude: one window with a tab per Claude account. Each tab hosts the real Claude desktop app.
+// Kitsun (formerly Multi Claude): one window with a tab per AI. Each tab has a kind (TAB_KINDS); a Claude tab hosts
+// the real Claude desktop app, signed in to its own account.
 //
-// Every extra account is the official Claude app started with its own data folder (--user-data-dir),
+// Every extra Claude account is the official Claude app started with its own data folder (--user-data-dir),
 // so it has its own sign-in, chats, settings and usage; the Claude app supports this and logs
 // "stay_chosen_folder". Each Claude window is then docked inside our window as a child window.
 // Chromium only paints inside another program's window when DirectComposition is off, so every copy
@@ -20,7 +21,14 @@ const { createSearch, sessionLink, SESSION_ID_RE, MAX_QUERY } = require('./lib/s
 const { createChrome, PROFILE_DIR_RE } = require('./lib/chrome');
 const { continueSession } = require('./lib/handoff');
 
-const APP_ID = 'local.multi-claude';
+const APP_ID = 'local.kitsun';
+const APP_NAME = 'Kitsun';
+// What this app was called before: its settings folder, login item, Start Menu shortcut and install folder are taken
+// over once (see takeOverOldApp).
+const OLD_APP = { name: 'Multi Claude', id: 'local.multi-claude' };
+// The kinds of tab. Only Claude tabs so far; lib/attention, search, stats, chrome and handoff are Claude-only and
+// only ever get Claude tabs (claudeTabs()).
+const TAB_KINDS = ['claude'];
 const ACCOUNT_ID_RE = /^[a-z0-9-]{1,64}$/;
 const DOCK_FLAG = '--disable-direct-composition';
 const CLAUDE_ALIAS_DIR = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps');
@@ -38,11 +46,11 @@ const autoCodeDir = (id) => path.join(CODE_CONFIG_ROOT, id);
 const DEFAULT_SETTINGS = {
   startWithWindows: false, // a Windows login item (installed app only), started with --hidden
   startHidden: false, // start in the tray; every account still starts
-  closeToTray: true, // the close button hides Multi Claude to the tray instead of quitting
+  closeToTray: true, // the close button hides Kitsun to the tray instead of quitting
   autoRestart: true, // start an account's Claude again if it quits or crashes
   notifyNeedsYou: true, // notify when an account is waiting for the user
   notifyLimits: true, // notify when an account nears its plan limit
-  notifyRestarts: true, // notify (while Multi Claude is in the background) about Claude updates, reopened and frozen accounts
+  notifyRestarts: true, // notify (while Kitsun is in the background) about Claude updates, reopened and frozen accounts
 };
 
 // The account already signed in to the normal Claude app is the "main" one; it keeps the app's own data folder.
@@ -105,6 +113,7 @@ function sanitizeSettings(raw) {
 function sanitizeAccount(a) {
   return {
     id: a.id,
+    kind: TAB_KINDS.includes(a.kind) ? a.kind : 'claude', // files from before tab kinds only had Claude accounts
     name: String(a.name || 'Account').slice(0, 40),
     color: /^#[0-9a-f]{6}$/i.test(a.color) ? a.color : '#888888',
     main: a.main === true,
@@ -185,6 +194,7 @@ function removeOldLeftovers() {
 }
 
 const accountById = (id) => state.accounts.find((a) => a.id === id);
+const claudeTabs = () => state.accounts.filter((a) => a.kind === 'claude');
 
 // ---------- the Claude app ----------
 
@@ -197,7 +207,7 @@ function claudeAlias() {
   return null;
 }
 
-// Variables a Claude Code session leaves behind if Multi Claude was started from one. The user's own
+// Variables a Claude Code session leaves behind if Kitsun was started from one. The user's own
 // settings (proxy, Git Bash path, API settings…) are passed through untouched.
 const SESSION_VARS = /^(CLAUDECODE|CLAUDE_CODE_ENTRYPOINT|CLAUDE_CODE_SSE_PORT|CLAUDE_CONFIG_DIR|CLAUDE_AGENT_SDK_.*|CLAUDE_CODE_SESSION_.*)$/i;
 
@@ -219,7 +229,7 @@ function spawnDetached(cmd, args, env) {
 
 async function launchClaude(account, extraArgs = []) {
   const alias = claudeAlias();
-  if (!alias) return { ok: false, error: 'The Claude desktop app is not installed. Install it from claude.ai/download, then reopen Multi Claude.' };
+  if (!alias) return { ok: false, error: 'The Claude desktop app is not installed. Install it from claude.ai/download, then reopen Kitsun.' };
   try {
     // Chromium pauses windows it thinks are covered; a docked window is easily misjudged as covered.
     const args = [DOCK_FLAG, '--disable-backgrounding-occluded-windows', '--disable-features=CalculateNativeWinOcclusion'];
@@ -303,7 +313,7 @@ function scanProcesses({ fresh = false } = {}) {
     const procs = listed.filter((p) => !processGone(p.pid));
     firstScanDone = true;
     noteClaudeVersion(procs);
-    for (const a of state.accounts) {
+    for (const a of claudeTabs()) {
       const i = inst(a.id);
       const want = a.main ? null : autoDataDir(a.id).toLowerCase();
       const proc = procs.find((p) => dataDirOf(p.cmd) === want);
@@ -356,7 +366,7 @@ function scanProcesses({ fresh = false } = {}) {
 function attachWindows() {
   if (!mainWindow || closing) return;
   let changed = false;
-  for (const a of state.accounts) {
+  for (const a of claudeTabs()) {
     const i = inst(a.id);
     if (!i.pid || i.status === 'external' || i.status === 'stopping' || i.hwnd) continue;
     const hwnd = win32.findAppWindow(i.pid);
@@ -508,7 +518,7 @@ function enforce() {
   if (watchWindows()) { layout(); pushStatus(); watchStartup(); }
   if (windowAway()) {
     // All docked windows are hidden while minimised or in the tray, so one that shows itself means Claude
-    // asked for attention (e.g. a notification was clicked): bring Multi Claude back with that account showing.
+    // asked for attention (e.g. a notification was clicked): bring Kitsun back with that account showing.
     // IsWindowVisible() is false for every child of a hidden window, so the child's own WS_VISIBLE bit is read.
     for (const [id, i] of instances) {
       if (!i.hwnd || i.status === 'stopping' || win32.isHung(i.hwnd) || !win32.hasVisibleStyle(i.hwnd)) continue;
@@ -697,7 +707,7 @@ function onClosed(account, i) {
     i.exit = { reason: 'stopped', at, reopening: false, gaveUp: false };
   }
   i.quitAskedAt = 0; // that copy is gone; a Stop asked of it says nothing about the next one
-  // Our own Stop or freeze restart; or Multi Claude itself is quitting.
+  // Our own Stop or freeze restart; or Kitsun itself is quitting.
   if (i.stoppedByUser || at < (i.expectExitUntil || 0) || closing) { pushStatus(); return; }
   recentCloses = recentCloses.filter((c) => at - c.at < 60000);
   const others = recentCloses.filter((c) => c.id !== account.id && at - c.at <= SEVERAL_AT_ONCE);
@@ -815,7 +825,7 @@ function claudePackage() {
 }
 
 // Remembers the newest Claude version running. A newer one than before means Claude updated: say so once
-// the copies it closed are back (or after 3 minutes), naming the ones Multi Claude reopened.
+// the copies it closed are back (or after 3 minutes), naming the ones Kitsun reopened.
 let updateNotice = null;
 let announceTimer = null;
 function noteClaudeVersion(procs) {
@@ -847,14 +857,14 @@ function reopened(account, i) {
   const e = i.exit;
   i.exit = null;
   i.stoppedByUser = false;
-  // Only the ones Multi Claude launched count; the copy that installed an update reopens itself.
+  // Only the ones Kitsun launched count; the copy that installed an update reopens itself.
   if (!e || !e.reopening || !e.launched) return;
   i.reopened = { reason: e.reason, at: Date.now() };
   // An update is announced as a whole (see noteClaudeVersion); a crash on its own.
   if (e.reason === 'crash') notify(`${account.name}'s Claude closed unexpectedly · reopened it`, { id: account.id, kind: 'reopened' });
 }
 
-// Tells the page (a toast in the title bar) and, while Multi Claude is hidden or in the background and the
+// Tells the page (a toast in the title bar) and, while Kitsun is hidden or in the background and the
 // setting allows it, Windows too. Clicking the notification shows that account.
 // setting: the Settings key that allows the Windows notification. action: { label, id }, a button in the toast
 // that shows account `id` (e.g. "Switch").
@@ -865,7 +875,7 @@ function notify(text, { id = null, kind = 'info', system = true, setting = 'noti
   if (!system || !state.settings[setting] || !(windowAway() || !mainWindow.isFocused())) return;
   try {
     if (!Notification.isSupported()) return;
-    const n = new Notification({ title: 'Multi Claude', body: text, icon: path.join(__dirname, 'build', 'icon.png') });
+    const n = new Notification({ title: 'Kitsun', body: text, icon: path.join(__dirname, 'build', 'icon.png') });
     liveNotifications.add(n);
     const drop = () => liveNotifications.delete(n);
     n.on('click', () => { drop(); showWindow(); if (id && accountById(id)) showAccount(id); });
@@ -902,15 +912,15 @@ async function pollAttention() {
   attentionBusy = true;
   try {
     const shown = onScreenAccounts();
-    // On screen with Multi Claude in front (no dialog over it) counts as seen: the person was there when it finished.
+    // On screen with Kitsun in front (no dialog over it) counts as seen: the person was there when it finished.
     const looking = mainWindow.isFocused() && !overlayHidden ? shown : new Set();
     const running = new Set(state.accounts.filter((a) => inst(a.id).pid).map((a) => a.id));
-    const { accounts, limits } = await attention.poll(state.accounts, { running, looking });
+    const { accounts, limits } = await attention.poll(claudeTabs(), { running, looking });
     if (closing || !mainWindow) return;
     noticeWaiting(accounts, shown);
     for (const e of limits) noticeLimit(e, accounts);
     // The search index reads the same session files (cached by file time); it rebuilds at most every 10 s.
-    if (search) search.refresh(state.accounts).catch((err) => console.error('Could not index sessions:', err));
+    if (search) search.refresh(claudeTabs()).catch((err) => console.error('Could not index sessions:', err));
     // A sign-in to Claude in Chrome (or a new Chrome profile) shows on the Chrome buttons within half a minute.
     if (Date.now() - chromeAt > CHROME_EVERY) refreshChrome();
     attentionPrimed = true;
@@ -936,11 +946,11 @@ function pokeAttention() {
 }
 
 // A session in an account that isn't on screen started waiting for the person: one toast (and a Windows notification
-// while Multi Claude isn't in front) per waiting period, so a turn asking for several permissions in a row says it once.
+// while Kitsun isn't in front) per waiting period, so a turn asking for several permissions in a row says it once.
 function noticeWaiting(accounts, shown) {
   const now = Date.now();
   const fresh = [];
-  for (const a of state.accounts) {
+  for (const a of claudeTabs()) {
     for (const it of (accounts[a.id] && accounts[a.id].items) || []) {
       if (it.state !== 'waiting') continue;
       const last = waitingSeenAt.get(it.sessionId);
@@ -964,7 +974,7 @@ function noticeLimit({ id, type, pct }, accounts) {
   if (type === 'reset') { notify(`${a.name}'s 5-hour limit has reset`, { id, kind: 'limit', setting: 'notifyLimits' }); return; }
   const key = type === 'weekly' ? 'weekly' : 'fiveHour';
   // The other account with the most of the same limit left, if it has more left than this one.
-  const best = state.accounts
+  const best = claudeTabs()
     .filter((o) => o.id !== id && accounts[o.id] && accounts[o.id].usage)
     .map((o) => ({ o, used: accounts[o.id].usage[key] }))
     .sort((x, y) => x.used - y.used)[0];
@@ -1024,7 +1034,7 @@ function openSwitcher() {
 function updateTrayTip() {
   if (!tray) return;
   const n = Object.values(sessionsPayload).reduce((sum, r) => sum + ((r && r.waiting) || 0), 0);
-  try { tray.setToolTip(n ? `Multi Claude · ${n} session${n === 1 ? ' needs' : 's need'} you` : 'Multi Claude'); } catch { /* cosmetic */ }
+  try { tray.setToolTip(n ? `Kitsun · ${n} session${n === 1 ? ' needs' : 's need'} you` : 'Kitsun'); } catch { /* cosmetic */ }
 }
 
 // ---------- each account's Chrome profile ----------
@@ -1045,7 +1055,7 @@ async function refreshChrome({ fresh = false } = {}) {
   if (!chrome || closing) return chromeSnap;
   chromeAt = Date.now();
   try {
-    chromeSnap = await chrome.snapshot(state.accounts, { fresh });
+    chromeSnap = await chrome.snapshot(claudeTabs(), { fresh });
   } catch (err) {
     console.error('Could not read Chrome profiles:', err);
     return chromeSnap;
@@ -1115,7 +1125,7 @@ function killTree(pid) {
 // treats that like File > Exit: it runs its own clean-up and quits, where a plain close (WM_CLOSE, or
 // taskkill without /F) only hides it to its tray. If it is still running after STOP_WAIT the page asks the
 // user whether to force it (force: taskkill /T /F). It then stays stopped until its Start is clicked or
-// Multi Claude starts again.
+// Kitsun starts again.
 async function stopAccount(id, { force = false } = {}) {
   const account = accountById(id);
   const i = inst(id);
@@ -1178,7 +1188,7 @@ async function stopFrozen(id) {
     ? `${account.name} is your main Claude app and isn't responding, so it can't be asked to quit. Stopping it ends everything running in it at once, including every Claude Code session in it. It stays closed until you start it again.`
     : `${account.name}'s Claude isn't responding, so it can't be asked to quit. Stopping it ends everything running in it at once, including any Claude Code session working there. It stays closed until you start it again.`;
   const { response } = await dialog.showMessageBox(mainWindow, {
-    type: 'warning', title: 'Multi Claude', message: `Stop ${account.name}?`, detail,
+    type: 'warning', title: 'Kitsun', message: `Stop ${account.name}?`, detail,
     buttons: [`Stop ${account.name}`, 'Keep waiting'], defaultId: 1, cancelId: 1, noLink: true,
   });
   if (response !== 0 || closing) return { ok: false, cancelled: true };
@@ -1197,7 +1207,7 @@ async function restartFrozen(id) {
     ? `${account.name} is your main Claude app. Restarting it ends everything running in it, including any Claude Code session working there. Your chats and past sessions are kept.`
     : `This ends everything running in ${account.name}'s Claude, including any Claude Code session working there, and starts it again. Your chats and past sessions are kept.`;
   const { response } = await dialog.showMessageBox(mainWindow, {
-    type: 'warning', title: 'Multi Claude', message: `Restart ${account.name}?`, detail,
+    type: 'warning', title: 'Kitsun', message: `Restart ${account.name}?`, detail,
     buttons: [`Restart ${account.name}`, 'Keep waiting'], defaultId: 1, cancelId: 1, noLink: true,
   });
   if (response !== 0 || closing) return { ok: false, cancelled: true };
@@ -1254,7 +1264,7 @@ function cliSessionRunning(cliSessionId) {
   });
 }
 
-// needsRestart: the target's Claude is running and lists the session only after a restart (canRestart: Multi Claude
+// needsRestart: the target's Claude is running and lists the session only after a restart (canRestart: Kitsun
 // can do that; not for a copy open in its own window). started: it wasn't running and starts with the session open.
 async function startHandoff(fromId, toId, sessionId) {
   const from = accountById(fromId);
@@ -1263,7 +1273,7 @@ async function startHandoff(fromId, toId, sessionId) {
   if (!sameFolder(codeDirOf(from), codeDirOf(to))) {
     return { ok: false, error: `${to.name} uses its own Claude Code folder, so it can't read this conversation. Turn on "Share Claude Code settings" for both accounts.` };
   }
-  if (search) await search.refresh(state.accounts, { force: true }).catch(() => {});
+  if (search) await search.refresh(claudeTabs(), { force: true }).catch(() => {});
   const doc = search && search.find(fromId, sessionId);
   if (!doc) return { ok: false, error: `That session isn't in ${from.name} any more.` };
   // Mid-turn, the copy would stop halfway through what Claude is doing. A pending permission, question or plan prompt
@@ -1289,7 +1299,7 @@ async function startHandoff(fromId, toId, sessionId) {
   if (!r.ok) return { ok: false, error: r.error };
   console.log(`Continued ${sessionId} (${from.name}) as ${r.sessionId} in ${to.name}`);
   handoffs.set(r.sessionId, toId);
-  if (search) await search.refresh(state.accounts, { force: true }).catch(() => {});
+  if (search) await search.refresh(claudeTabs(), { force: true }).catch(() => {});
   const base = { ok: true, sessionId: r.sessionId, title: r.title };
   await scanProcesses(); // whether its Claude runs right now decides between a restart and a plain start
   const i = inst(toId);
@@ -1359,7 +1369,7 @@ function initialBounds() {
   return bounds;
 }
 
-// Brings Multi Claude back from the tray or the taskbar. Docked windows follow through the 'show' and 'focus' events.
+// Brings Kitsun back from the tray or the taskbar. Docked windows follow through the 'show' and 'focus' events.
 function showWindow() {
   if (!mainWindow || closing) return;
   if (pendingMaximize) { pendingMaximize = false; mainWindow.maximize(); } else if (mainWindow.isMinimized()) mainWindow.restore();
@@ -1377,8 +1387,8 @@ function hideToTray() {
   try {
     tray.displayBalloon({
       icon: nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png')),
-      title: 'Multi Claude is still running',
-      content: 'Your Claude accounts keep running here. Click the tray icon to come back, or right-click it to quit.',
+      title: 'Kitsun is still running',
+      content: 'Your AIs keep running here. Click the tray icon to come back, or right-click it to quit.',
     });
   } catch { /* cosmetic */ }
 }
@@ -1389,7 +1399,7 @@ function createWindow({ hidden = false } = {}) {
     minWidth: 720,
     minHeight: 480,
     backgroundColor: '#1a1917',
-    title: 'Multi Claude',
+    title: 'Kitsun',
     icon: path.join(__dirname, 'build', 'icon.png'),
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#1f1e1c', symbolColor: '#ece9e2', height: 40 },
@@ -1418,7 +1428,7 @@ function createWindow({ hidden = false } = {}) {
   });
 
   // Ctrl+Alt+1–9 switches accounts and Ctrl+Alt+0 goes home, even while a Claude window has the keyboard.
-  // Only registered while Multi Claude is the active window, so it never steals the keys from other programs.
+  // Only registered while Kitsun is the active window, so it never steals the keys from other programs.
   const registerKeys = () => {
     globalShortcut.unregisterAll();
     try { globalShortcut.register('Control+Alt+0', showHome); } catch { /* invalid on this keyboard */ }
@@ -1434,10 +1444,10 @@ function createWindow({ hidden = false } = {}) {
       } catch { /* invalid on this keyboard */ }
     }
   };
-  // When Multi Claude is activated (Alt+Tab, taskbar), Windows gives the keyboard to our own page, and the
+  // When Kitsun is activated (Alt+Tab, taskbar), Windows gives the keyboard to our own page, and the
   // docked Claude window ignores input until it is focused itself. Hand focus straight to the account on show.
   // Re-placing the docked windows is what a tab click does, and it is what wakes a docked Claude that
-  // Chromium stopped painting while Multi Claude was in the background.
+  // Chromium stopped painting while Kitsun was in the background.
   mainWindow.on('focus', () => {
     registerKeys();
     layout();
@@ -1446,7 +1456,7 @@ function createWindow({ hidden = false } = {}) {
     setTimeout(() => { layout(); focusActivePane(); }, 250);
   });
   mainWindow.on('blur', () => globalShortcut.unregisterAll());
-  // Hidden in the tray: no shortcuts (Multi Claude isn't the active window) and no docked window on screen.
+  // Hidden in the tray: no shortcuts (Kitsun isn't the active window) and no docked window on screen.
   mainWindow.on('hide', () => { globalShortcut.unregisterAll(); layout(); });
   mainWindow.on('show', layout);
 
@@ -1501,11 +1511,11 @@ function createWindow({ hidden = false } = {}) {
   };
   scheduleScan();
 
-  // Dev aid: MULTI_CLAUDE_EVAL=<file.js> runs a script in the page after startup and prints the result.
-  if (process.env.MULTI_CLAUDE_EVAL && !app.isPackaged) {
+  // Dev aid: KITSUN_EVAL=<file.js> runs a script in the page after startup and prints the result.
+  if (process.env.KITSUN_EVAL && !app.isPackaged) {
     mainWindow.webContents.once('did-finish-load', () => setTimeout(async () => {
-      console.log('eval:', await mainWindow.webContents.executeJavaScript(fs.readFileSync(process.env.MULTI_CLAUDE_EVAL, 'utf8')).catch((e) => e.message));
-    }, Number(process.env.MULTI_CLAUDE_EVAL_DELAY) || 3000));
+      console.log('eval:', await mainWindow.webContents.executeJavaScript(fs.readFileSync(process.env.KITSUN_EVAL, 'utf8')).catch((e) => e.message));
+    }, Number(process.env.KITSUN_EVAL_DELAY) || 3000));
   }
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -1534,7 +1544,7 @@ function createTray() {
     tray = null;
     return;
   }
-  tray.setToolTip('Multi Claude');
+  tray.setToolTip('Kitsun');
   tray.on('click', showWindow);
   updateTrayMenu();
 }
@@ -1544,7 +1554,7 @@ function updateTrayMenu() {
   if (!tray) return;
   const thenShow = (fn) => () => { showWindow(); fn(); };
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Show Multi Claude', click: showWindow },
+    { label: 'Show Kitsun', click: showWindow },
     { label: 'Home', click: thenShow(showHome) },
     { label: 'Search…', click: thenShow(openSwitcher) },
     { type: 'separator' },
@@ -1561,8 +1571,8 @@ function updateTrayMenu() {
         click: thenShow(() => { if (mainWindow && accountById(id)) mainWindow.webContents.send('request-stop', id); }),
       };
     }) },
-    // Each account's linked Chrome profile ("Studio · Studio Labs"); opens Chrome without showing Multi Claude.
-    ...(chromeSnap && chromeSnap.exe ? [{ label: 'Open Chrome', submenu: state.accounts.map(({ id, name }) => {
+    // Each account's linked Chrome profile ("Studio · Studio Labs"); opens Chrome without showing Kitsun.
+    ...(chromeSnap && chromeSnap.exe ? [{ label: 'Open Chrome', submenu: claudeTabs().map(({ id, name }) => {
       const link = chromeSnap.links[id] && chromeSnap.links[id].link;
       return {
         label: `${name} · ${link ? link.name : 'no profile linked'}`.replace(/&/g, '&&'),
@@ -1572,7 +1582,7 @@ function updateTrayMenu() {
     }) }] : []),
     { label: 'Settings…', click: thenShow(() => { if (mainWindow) mainWindow.webContents.send('open-settings'); }) },
     { type: 'separator' },
-    { label: 'Quit Multi Claude', click: () => app.quit() },
+    { label: 'Quit Kitsun', click: () => app.quit() },
   ]));
 }
 
@@ -1588,19 +1598,20 @@ function startAllAccounts() {
 // The entry is named after the app ID, so this must run after app.setAppUserModelId().
 const LOGIN_ARGS = ['--hidden'];
 
-// Only the installed copy (%LOCALAPPDATA%\Programs\Multi Claude) owns the login item. Another packaged copy (the dist
+// Only the installed copy (%LOCALAPPDATA%\Programs\Kitsun) owns the login item. Another packaged copy (the dist
 // build) would point Windows at itself, and the installed one would then show the setting off while Windows still
 // starts that other, possibly stale, build.
-const INSTALLED_DIR = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Multi Claude');
+const INSTALLED_DIR = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Kitsun');
 const samePath = (a, b) => path.resolve(String(a)).toLowerCase() === path.resolve(String(b)).toLowerCase();
 const isInstalledCopy = () => app.isPackaged && Boolean(process.env.LOCALAPPDATA) && samePath(path.dirname(process.execPath), INSTALLED_DIR);
 
 // The exe our Run entry (HKCU, named after APP_ID like Electron's own) starts, or null if there is none. Read from the
 // registry: getLoginItemSettings only lists entries for this exe, so it can't see one that starts another copy.
-function runEntryExe() {
+const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+function runEntryExe(name = APP_ID) {
   try {
-    const out = execFileSync('reg.exe', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', APP_ID], { windowsHide: true, timeout: 5000, encoding: 'utf8' });
-    const esc = APP_ID.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const out = execFileSync('reg.exe', ['query', RUN_KEY, '/v', name], { windowsHide: true, timeout: 5000, encoding: 'utf8' });
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const m = new RegExp(`^\\s*${esc}\\s+REG_(?:EXPAND_)?SZ\\s+(.*)$`, 'mi').exec(String(out));
     if (!m) return null;
     const v = m[1].trim();
@@ -1666,7 +1677,7 @@ ipcMain.handle('settings:set', (event, changes) => {
   if (state.settings.startWithWindows !== before.startWithWindows) {
     if (!isInstalledCopy()) {
       state.settings.startWithWindows = before.startWithWindows;
-      return { ok: false, error: 'Only the installed Multi Claude (in %LOCALAPPDATA%\\Programs) can start with Windows.', settings: { ...state.settings } };
+      return { ok: false, error: 'Only the installed Kitsun (in %LOCALAPPDATA%\\Programs) can start with Windows.', settings: { ...state.settings } };
     }
     try {
       applyLoginItem();
@@ -1713,7 +1724,7 @@ ipcMain.handle('ui:home', (event) => {
 ipcMain.handle('stats:get', async (event) => {
   if (!fromShell(event) || !stats) return null;
   try {
-    return await stats.get(state.accounts, instances);
+    return await stats.get(claudeTabs(), instances);
   } catch (err) {
     console.error('Could not collect stats:', err);
     return { generatedAt: Date.now(), scanning: false, accounts: [] };
@@ -1728,7 +1739,7 @@ ipcMain.handle('sessions:get', (event) => (fromShell(event) ? sessionsPayload : 
 ipcMain.handle('search:query', async (event, text) => {
   if (!fromShell(event) || !search || typeof text !== 'string' || text.length > MAX_QUERY) return [];
   try {
-    return await search.query(state.accounts, text);
+    return await search.query(claudeTabs(), text);
   } catch (err) {
     console.error('Search failed:', err);
     return [];
@@ -1934,15 +1945,61 @@ ipcMain.handle('account:sign-in-link', async (event, id, text) => {
 function ensureStartMenuShortcut() {
   if (!app.isPackaged) return;
   try {
-    const lnk = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Multi Claude.lnk');
+    const lnk = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Kitsun.lnk');
     shell.writeShortcutLink(lnk, fs.existsSync(lnk) ? 'update' : 'create', {
       target: process.execPath, appUserModelId: APP_ID, icon: process.execPath, iconIndex: 0,
-      description: 'All your Claude accounts in one window',
+      description: 'All your AIs in one window',
     });
   } catch { /* cosmetic */ }
 }
 
-// When Multi Claude is started from inside a Store app (e.g. by a Claude Code session in the Claude
+// ---------- taking over from Multi Claude (this app's old name) ----------
+
+// Its settings (accounts, layout, Settings) and the stats cache are copied once, the first time Kitsun starts. The old
+// folder is left as it was, so the old app still works if it is ever started again.
+function takeOverOldSettings() {
+  const oldDir = path.join(app.getPath('appData'), OLD_APP.name);
+  if (fs.existsSync(dataFile()) || !fs.existsSync(path.join(oldDir, 'profiles.json'))) return;
+  try {
+    fs.mkdirSync(app.getPath('userData'), { recursive: true });
+    for (const f of ['profiles.json', 'stats-cache.json']) {
+      if (fs.existsSync(path.join(oldDir, f))) fs.copyFileSync(path.join(oldDir, f), path.join(app.getPath('userData'), f));
+    }
+    console.log(`Took over ${OLD_APP.name}'s settings`);
+  } catch (err) {
+    console.error(`Could not copy ${OLD_APP.name}'s settings:`, err);
+  }
+}
+
+// A running Multi Claude holds the same Claude windows, and two apps docking them would fight over every one, so it is
+// asked to quit (its own `--quit`, which hands the windows back) before Kitsun docks anything. oldAppExe() finds it;
+// quitOldApp resolves once it is gone, or after 20 s.
+function oldAppExe() {
+  try {
+    return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `(Get-Process -Name '${OLD_APP.name}' -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Select-Object -First 1).Path`],
+    { windowsHide: true, timeout: 15000, encoding: 'utf8' }).trim();
+  } catch { return ''; }
+}
+
+async function quitOldApp(exe) {
+  const find = oldAppExe;
+  console.log(`Asking ${OLD_APP.name} to quit`);
+  try { spawn(exe, ['--quit'], { detached: true, stdio: 'ignore', windowsHide: true }).unref(); } catch { return; }
+  for (let t = 0; t < 20 && find(); t++) await sleep(1000);
+}
+
+// The installed copy also takes over the old login item (keeping the setting as it was) and Start Menu shortcut.
+function takeOverOldShellItems() {
+  if (!isInstalledCopy()) return;
+  if (runEntryExe(OLD_APP.id)) {
+    try { execFileSync('reg.exe', ['delete', RUN_KEY, '/v', OLD_APP.id, '/f'], { windowsHide: true, timeout: 5000 }); } catch { /* left for Task Manager */ }
+    if (state.settings.startWithWindows) applyLoginItem();
+  }
+  try { fs.rmSync(path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', `${OLD_APP.name}.lnk`), { force: true }); } catch { /* cosmetic */ }
+}
+
+// When Kitsun is started from inside a Store app (e.g. by a Claude Code session in the Claude
 // app), Windows quietly redirects its %APPDATA% files into that app's private folder, so settings saved
 // then are missing the next time it is opened normally. Detect that by writing a probe file and
 // looking for it in the Store apps' folders.
@@ -1988,10 +2045,10 @@ if (app.isPackaged && !process.argv.includes('--quit') && settingsRedirected() &
 } else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  // Opening Multi Claude again (Start menu, taskbar) shows the running one, also from the tray.
+  // Opening Kitsun again (Start menu, taskbar) shows the running one, also from the tray.
   // A second start from the login item (--hidden) leaves it where it is.
   app.on('second-instance', (_event, argv) => {
-    // `Multi Claude.exe --quit` really quits a running copy (the close button only hides it to the tray),
+    // `Kitsun.exe --quit` really quits a running copy (the close button only hides it to the tray),
     // e.g. so an update script can replace the files. It runs the normal quit path, which undocks every window.
     if (Array.isArray(argv) && argv.includes('--quit')) { app.quit(); return; }
     if (!Array.isArray(argv) || !argv.includes('--hidden')) showWindow();
@@ -2000,8 +2057,10 @@ if (app.isPackaged && !process.argv.includes('--quit') && settingsRedirected() &
   app.whenReady().then(async () => {
     app.setAppUserModelId(APP_ID);
     Menu.setApplicationMenu(null);
+    takeOverOldSettings();
     state = loadState();
     if (!fs.existsSync(dataFile())) removeOldLeftovers();
+    takeOverOldShellItems();
     syncLoginItem();
     saveState();
     ensureStartMenuShortcut();
@@ -2009,6 +2068,8 @@ if (app.isPackaged && !process.argv.includes('--quit') && settingsRedirected() &
       cacheFile: path.join(app.getPath('userData'), 'stats-cache.json'),
       onActivityUpdated: () => { if (mainWindow && !closing) mainWindow.webContents.send('stats-updated'); },
     });
+    const oldExe = oldAppExe();
+    if (oldExe) await quitOldApp(oldExe); // before anything is docked
     createTray();
     // Started by the login item, or set to start in the tray: every account still starts below, but the
     // window waits in the tray. Without a tray icon there'd be no way to open it, so it shows then.

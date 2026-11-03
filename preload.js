@@ -1,7 +1,7 @@
-// Bridge between the Multi Claude window and the main process.
+// Bridge between the Kitsun window and the main process.
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('multiClaude', {
+contextBridge.exposeInMainWorld('kitsun', {
   getState: () => ipcRenderer.invoke('state:get'),
   showAccount: (id) => ipcRenderer.invoke('ui:show-account', id),
   setSplit: (split) => ipcRenderer.invoke('ui:split', split),
