@@ -3,7 +3,7 @@
 
 const api = window.kitsun;
 
-const COLORS = ['#ff7b3a', '#8b7bff', '#34d399', '#5b9dff', '#ffb547', '#f472b6', '#22d3ee', '#a3acbf'];
+const COLORS = ['#ff3d5f', '#8b7bff', '#34d399', '#5b9dff', '#ffb547', '#f472b6', '#22d3ee', '#a3acbf'];
 
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
