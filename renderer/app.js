@@ -40,6 +40,9 @@ const byId = (id) => accounts.find((a) => a.id === id);
 const claudeAccounts = () => accounts.filter((a) => a.kind === 'claude');
 const KIND_NAMES = { claude: 'Claude app', web: 'Website', app: 'Desktop app', terminal: 'Terminal' };
 const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+const fileName = (p) => String(p || '').split(/[\\/]/).pop();
+// Where a website or app tab points: its site, or its program.
+const whereOf = (a) => (a.kind === 'web' ? hostOf(a.url) : a.kind === 'app' ? fileName(a.exe) : '');
 const PANES_IN = { single: 1, split: 2, triple: 3 };
 const currentLayout = () => (PANES_IN[ui.layout] ? ui.layout : ui.split ? 'split' : 'single');
 const paneCount = () => PANES_IN[currentLayout()];
@@ -277,19 +280,25 @@ async function restartFrozen(account) {
   if (r && !r.ok && !r.cancelled && r.error) toast(r.error);
 }
 
-function webNotice(account, s) {
+// A website or desktop app tab that isn't showing: opening, closed, or couldn't open.
+function tabNotice(account, s) {
   if (s.status === 'docked') return null;
+  if (s.status === 'starting') {
+    return el('div', { class: 'notice' }, [el('div', { class: 'spinner' }), el('p', { text: `Opening ${account.name}…` })]);
+  }
+  const app = account.kind === 'app';
+  const r = s.exit ? s.exit.reason : null;
   return el('div', { class: 'notice' }, [
-    el('h2', { text: s.exit && s.exit.reason === 'stopped' ? `You closed ${account.name}` : `${account.name} isn't open` }),
-    el('p', { text: `Open it again to load ${hostOf(account.url) || 'the page'}. You stay signed in.` }),
-    s.error ? el('p', { text: s.error }) : null,
+    el('h2', { text: r === 'stopped' ? `You closed ${account.name}` : r === 'closed' ? `${account.name} was closed` : `${account.name} isn't open` }),
+    el('p', { text: app ? `Open it to start ${fileName(account.exe)} here, in this pane.` : `Open it again to load ${hostOf(account.url) || 'the page'}. You stay signed in.` }),
+    s.error ? el('p', { class: 'notice-error', text: s.error }) : null,
     el('button', { class: 'btn primary', type: 'button', text: `Open ${account.name}`, onclick: () => api.startAccount(account.id) }),
   ]);
 }
 
 function notice(account) {
   const s = status[account.id] || { status: 'stopped' };
-  if (account.kind === 'web') return webNotice(account, s);
+  if (account.kind !== 'claude') return tabNotice(account, s);
   if (s.frozen) return frozenNotice(account);
   if (s.status === 'docked') return null;
   if (s.status === 'starting') {
@@ -589,7 +598,7 @@ const manageDialog = $('#manage-dialog');
 function renderManageList() {
   $('#manage-list').replaceChildren(...accounts.map((a) => el('li', { style: `--acc:${a.color}` }, [
     el('span', { class: 'name', text: a.name }),
-    el('span', { class: 'tag', text: a.kind === 'web' ? `Website · ${hostOf(a.url)}` : a.main ? 'Your normal Claude app' : 'Separate Claude copy' }),
+    el('span', { class: 'tag', text: a.kind === 'web' ? `Website · ${hostOf(a.url)}` : a.kind === 'app' ? `Desktop app · ${fileName(a.exe)}` : a.main ? 'Your normal Claude app' : 'Separate Claude copy' }),
     el('button', { class: 'btn ghost', type: 'button', text: 'Edit', onclick: () => openAccountDialog(a) }),
   ])));
 }
@@ -604,6 +613,8 @@ let editing = null;
 // The kind of tab the dialog adds or edits, and the catalogue entry a new one comes from (null: a plain Claude account).
 let dialogKind = 'claude';
 let dialogEntry = null;
+// For a new desktop app tab picked by hand: { token, file, name } from app:pick (main keeps the path).
+let dialogPick = null;
 let chosenColor = COLORS[0];
 
 function renderSwatches() {
@@ -614,23 +625,29 @@ function renderSwatches() {
 }
 
 // account: the tab to edit, or null to add one. kind / entry (for a new one): what the picker chose.
-function openAccountDialog(account, { kind = 'claude', entry = null } = {}) {
+// pick (a new app tab): the program the user picked.
+function openAccountDialog(account, { kind = 'claude', entry = null, pick = null } = {}) {
   editing = account;
   dialogKind = account ? account.kind || 'claude' : kind;
   dialogEntry = account ? null : entry;
+  dialogPick = account ? null : pick;
   const web = dialogKind === 'web';
-  const named = entry && !entry.custom ? entry.name : '';
+  const app = dialogKind === 'app';
+  const claude = dialogKind === 'claude';
+  const named = entry && !entry.custom ? entry.name : pick ? pick.name : '';
   $('#account-dialog-title').textContent = account ? `Edit ${account.name}`
-    : web ? (named ? `Add ${named}` : 'Add a website') : 'Add a Claude account';
+    : web ? (named ? `Add ${named}` : 'Add a website') : app ? (named ? `Add ${named}` : 'Add an app') : 'Add a Claude account';
   // A second ChatGPT tab is "ChatGPT 2", and so on.
   let suggested = named;
   for (let n = 2; suggested && accounts.some((a) => a.name === suggested); n++) suggested = `${named} ${n}`;
-  $('#f-name').value = account ? account.name : web ? suggested : '';
-  $('#f-name').placeholder = web ? 'e.g. ChatGPT, Gemini (work)' : 'e.g. Personal, Work, Client X';
+  $('#f-name').value = account ? account.name : claude ? '' : suggested;
+  $('#f-name').placeholder = web ? 'e.g. ChatGPT, Gemini (work)' : app ? 'e.g. VS Code, LM Studio' : 'e.g. Personal, Work, Client X';
+  $('#f-app-box').hidden = !app;
+  $('#f-app-file').textContent = account && app ? account.exe : pick ? pick.file : 'Found on this PC.';
   $('#f-url-box').hidden = !web;
   $('#f-url').required = web;
   $('#f-url').value = account ? account.url || '' : entry && entry.url ? entry.url : '';
-  $('#f-share-row').hidden = web;
+  $('#f-share-row').hidden = !claude;
   const used = new Set(accounts.map((a) => a.color));
   chosenColor = account ? account.color : entry && entry.color && !used.has(entry.color) && COLORS.includes(entry.color) ? entry.color : (COLORS.find((c) => !used.has(c)) || COLORS[0]);
   renderSwatches();
@@ -640,11 +657,11 @@ function openAccountDialog(account, { kind = 'claude', entry = null } = {}) {
   $('#f-share-hint').textContent = account && account.main
     ? 'This is the main account; it always uses your usual Claude Code folder.'
     : 'On: its Code tab sees your usual Claude Code settings, memory and past sessions. Off: a completely separate Claude Code setup, which also hides the sessions it already has. Usage is separate either way.';
-  $('#f-link-box').hidden = !account || account.main || web;
+  $('#f-link-box').hidden = !account || account.main || !claude;
   $('#f-link-box').open = false;
   $('#f-link').value = '';
   $('#f-delete').hidden = !account || account.main;
-  $('#f-delete').textContent = web ? 'Remove tab' : 'Remove account';
+  $('#f-delete').textContent = claude ? 'Remove account' : 'Remove tab';
   const s = account ? status[account.id] || {} : {};
   $('#f-stop').hidden = !account || !s.running || s.status === 'external' || s.status === 'stopping';
   $('#f-error').textContent = '';
@@ -653,7 +670,7 @@ function openAccountDialog(account, { kind = 'claude', entry = null } = {}) {
   if (!openModal(dialog)) return;
   if (web && !$('#f-url').value) $('#f-url').focus(); else $('#f-name').focus();
   // The list on hand may be half a minute old (a new profile, a fresh sign-in); refresh it unless already changed.
-  if (api.getChrome && !web) {
+  if (api.getChrome && claude) {
     api.getChrome().then((c) => {
       if (!c || !dialog.open || editing !== account) return;
       chromeInfo = c;
@@ -729,15 +746,20 @@ $('#account-form').addEventListener('submit', async (e) => {
     let url = $('#f-url').value.trim();
     if (url && !/^[a-z][a-z0-9+.-]*:/i.test(url)) url = `https://${url}`;
     input.url = url;
-  } else input.shareCode = $('#f-share').checked;
+  } else if (dialogKind === 'claude') input.shareCode = $('#f-share').checked;
   if (isNew) {
     input.kind = dialogKind;
     if (dialogEntry) input.catalogId = dialogEntry.id;
+    if (dialogPick) input.pick = dialogPick.token;
   }
   // Only sent when the choice is on screen, so a dialog opened without Chrome's list never clears it.
   if (!$('#f-chrome-box').hidden) input.chromeProfile = $('#f-chrome').value || null;
   const saved = await api.saveAccount(input);
-  if (!saved) { $('#f-error').textContent = web ? 'That address can\'t be used. It has to start with https://.' : 'Couldn\'t save the account.'; return; }
+  if (!saved) {
+    $('#f-error').textContent = web ? 'That address can\'t be used. It has to start with https://.'
+      : dialogKind === 'app' ? 'Couldn\'t add that app. Close this and pick it again.' : 'Couldn\'t save the account.';
+    return;
+  }
   accounts = saved;
   dialog.close();
   if (manageDialog.open) renderManageList();
@@ -745,7 +767,8 @@ $('#account-form').addEventListener('submit', async (e) => {
   if (isNew) {
     if (manageDialog.open) manageDialog.close();
     await show(id);
-    toast(web ? `Opening ${name}… Sign in inside the tab; it's separate from your browser.` : `Starting ${name}… Sign in when its Claude window appears.`);
+    toast(web ? `Opening ${name}… Sign in inside the tab; it's separate from your browser.`
+      : dialogKind === 'app' ? `Opening ${name}…` : `Starting ${name}… Sign in when its Claude window appears.`);
   }
 });
 
@@ -762,7 +785,9 @@ $('#f-link-go').addEventListener('click', async () => {
 $('#f-delete').addEventListener('click', async () => {
   const account = editing;
   if (!account) return;
-  const ok = await confirmDialog(`Remove ${account.name}?`, account.kind === 'web'
+  const ok = await confirmDialog(`Remove ${account.name}?`, account.kind === 'app'
+    ? `This removes the tab only. ${fileName(account.exe)} stays installed, and if it is open it moves back to a window of its own.`
+    : account.kind === 'web'
     ? `This closes ${account.name} and deletes its sign-in, cookies and saved data on this PC. Your account on ${hostOf(account.url) || 'the site'} isn't affected.`
     : `This deletes ${account.name}'s Claude copy from this PC: its sign-in, settings and local sessions. Chats saved to the account stay on claude.ai, and your project folders are not touched.`, 'Remove');
   if (!ok) return;
@@ -799,10 +824,13 @@ async function stopAccount(account) {
     toast(f && f.ok ? `${account.name} stopped.` : (f && f.error) || `Couldn't stop ${account.name}.`);
     return;
   }
-  if (account.kind === 'web') {
-    const close = await confirmDialog(`Close ${account.name}?`, 'This closes the page to free its memory. You stay signed in, and can open it again from its tab.', 'Close', { primary: true });
+  if (account.kind !== 'claude') {
+    const close = await confirmDialog(`Close ${account.name}?`, account.kind === 'app'
+      ? 'This closes it as its own close button would. If it has unsaved work, it may ask you about it in its tab first.'
+      : 'This closes the page to free its memory. You stay signed in, and can open it again from its tab.', 'Close', { primary: true });
     if (!close) return;
     if (dialog.open && editing && editing.id === account.id) dialog.close();
+    if (account.kind === 'app') toast(`Closing ${account.name}…`);
     const w = await api.stopAccount(account.id, false).catch((err) => ({ ok: false, error: err.message }));
     toast(w && w.ok ? `${account.name} closed.` : (w && w.error) || `Couldn't close ${account.name}.`);
     return;
@@ -962,7 +990,7 @@ function marked(text, tokens) {
 function accountState(a) {
   const s = status[a.id] || {};
   if (s.frozen) return 'Not responding';
-  if (s.status === 'docked') return a.kind === 'web' ? 'Open' : 'Running';
+  if (s.status === 'docked') return a.kind === 'claude' ? 'Running' : 'Open';
   if (s.status === 'starting') return 'Starting…';
   if (s.status === 'stopping') return 'Stopping…';
   if (s.status === 'external') return 'Open in its own window';
@@ -975,7 +1003,7 @@ function switcherCommands() {
   accounts.forEach((a, idx) => {
     const att = sessions[a.id] || {};
     const extra = att.waiting ? ` · ${att.waiting} need${att.waiting === 1 ? 's' : ''} you` : '';
-    cmds.push({ key: `go:${a.id}`, group: 'Go to', dot: a.color, label: a.name, sub: `${a.kind === 'web' ? `${hostOf(a.url)} · ` : ''}${accountState(a)}${extra}`, kbd: idx < 9 ? `Ctrl+Alt+${idx + 1}` : null, words: 'account tab switch', run: () => show(a.id) });
+    cmds.push({ key: `go:${a.id}`, group: 'Go to', dot: a.color, label: a.name, sub: `${a.kind !== 'claude' ? `${whereOf(a)} · ` : ''}${accountState(a)}${extra}`, kbd: idx < 9 ? `Ctrl+Alt+${idx + 1}` : null, words: 'account tab switch', run: () => show(a.id) });
   });
   cmds.push(
     { key: 'settings', group: 'Actions', icon: 'settings', label: 'Settings', words: 'preferences options tray notifications startup', opensDialog: true, run: openSettings },
@@ -994,10 +1022,10 @@ function switcherCommands() {
     // bar's Wait / Restart.
     if (s.frozen) continue;
     if (s.status === 'stopped') {
-      cmds.push({ key: `start:${a.id}`, group: 'Actions', icon: 'start', dot: a.color, label: `${a.kind === 'web' ? 'Open' : 'Start'} ${a.name}`, words: 'run open launch', run: () => { api.startAccount(a.id); toast(`Starting ${a.name}…`); } });
+      cmds.push({ key: `start:${a.id}`, group: 'Actions', icon: 'start', dot: a.color, label: `${a.kind === 'claude' ? 'Start' : 'Open'} ${a.name}`, words: 'run open launch', run: () => { api.startAccount(a.id); toast(`Starting ${a.name}…`); } });
     } else if (s.running && s.status !== 'external' && s.status !== 'stopping') {
       // Not awaited: stopAccount opens its confirmation at once and waits on it.
-      cmds.push({ key: `stop:${a.id}`, group: 'Actions', icon: 'stop', dot: a.color, label: `${a.kind === 'web' ? 'Close' : 'Stop'} ${a.name}…`, words: 'quit close end', opensDialog: true, run: () => { stopAccount(a); } });
+      cmds.push({ key: `stop:${a.id}`, group: 'Actions', icon: 'stop', dot: a.color, label: `${a.kind === 'claude' ? 'Stop' : 'Close'} ${a.name}…`, words: 'quit close end', opensDialog: true, run: () => { stopAccount(a); } });
     }
   }
   // Each account's linked Chrome profile (only those that have one).
@@ -1439,8 +1467,24 @@ function choosePickerEntry(e) {
     toast('The Claude desktop app isn\'t installed yet.', { label: 'Get it', onClick: () => getIt(e) });
     return;
   }
+  if (e.kind === 'app' && !e.custom && e.installed === false) {
+    toast(`${e.name} isn't installed on this PC.`, e.canGet ? { label: 'Get it', onClick: () => getIt(e) } : null);
+    return;
+  }
+  // "Any app", or one installed somewhere Kitsun can't find: the user picks the program first.
+  if (e.kind === 'app' && (e.custom || !e.exeKnown)) { pickApp(e); return; }
   // The tab dialog opens over the picker before it closes, so the panes don't flash in between.
   openAccountDialog(null, { kind: e.kind, entry: e });
+  if (dialog.open) picker.close();
+}
+
+async function pickApp(e) {
+  if (!api.pickApp) return;
+  if (!e.custom) toast(`Kitsun couldn't find where ${e.name} is installed. Pick its program file.`);
+  const r = await api.pickApp().catch(() => null);
+  if (!r) return;
+  if (r.error) { toast(r.error); return; }
+  openAccountDialog(null, { kind: 'app', entry: e, pick: r });
   if (dialog.open) picker.close();
 }
 

@@ -148,6 +148,8 @@
   // ---------- the stubbed bridge ----------
 
   const accounts = picked.map(({ id, name, color, main, shareCode }) => ({ id, kind: 'claude', name, color, main: Boolean(main), shareCode }));
+  // &app=1 adds a VS Code desktop app tab (its pane shows the "closed" notice: nothing is docked in a browser).
+  if (params.get('app') === '1') accounts.push({ id: 'vscode', kind: 'app', name: 'VS Code', color: '#4fb8c9', exe: 'D:\\Microsoft VS Code\\Code.exe', aumid: null, catalogId: 'vscode-app', main: false });
   if (params.get('web') === '1') accounts.push({ id: 'chatgpt', kind: 'web', name: 'ChatGPT', color: '#3fb68b', url: 'https://chatgpt.com/', catalogId: 'chatgpt-web', main: false });
   // A few catalogue entries in lib/catalog.js's shape (the real list is longer); LM Studio and Codex aren't installed.
   const CATALOG_SAMPLE = {
@@ -163,8 +165,10 @@
       ['lmstudio-app', 'app', 'Local models', 'LM Studio', 'LM Studio', '#6c5ce7', 'Download and chat with models on your own PC.', null, false],
       ['codex-cli', 'terminal', 'Terminal', 'Codex CLI', 'OpenAI', '#10a37f', 'OpenAI\'s coding agent in a terminal.', null, false],
       ['custom-web', 'web', 'Your own', 'Any website', '', '#9b968c', 'Type the address of any AI site.', null, null],
+      ['custom-app', 'app', 'Your own', 'Any app', '', '#9b968c', 'Pick a program installed on this PC.', null, null],
     ].map(([id, kind, group, name, by, color, blurb, url, installed]) => ({
-      id, kind, group, name, by, color, blurb, url, installed, custom: id.startsWith('custom-'), canGet: installed === false || id === 'claude', soon: !['claude', 'web'].includes(kind),
+      id, kind, group, name, by, color, blurb, url, installed, custom: id.startsWith('custom-'), canGet: installed === false || id === 'claude', soon: !['claude', 'web', 'app'].includes(kind),
+      exeKnown: kind === 'app' ? installed === true : null,
     })),
   };
   // Same shape as main.js statusPayload(): exit says why a copy closed, frozen marks one not responding.
@@ -516,6 +520,8 @@
     getChrome: () => later(40, chromeSample()),
     getCatalog: () => later(300, copy(CATALOG_SAMPLE)),
     getIt: () => later(20, true),
+    // Like main's app:pick, without the file dialog: a made-up program.
+    pickApp: () => later(20, { token: 'stub-token', file: 'C:\\Users\\you\\AppData\\Local\\Programs\\Some App\\SomeApp.exe', name: 'SomeApp' }),
     onChrome: (fn) => listeners.chrome.push(fn),
     // Like main's openChrome: nothing is started here.
     openChrome: (id) => {

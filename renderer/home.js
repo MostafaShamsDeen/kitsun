@@ -606,11 +606,12 @@ const Home = (() => {
     const [cls, text] = PILLS[v.state] || PILLS.stopped;
     r.pill.className = `pill ${cls}`;
     r.pillText.textContent = text;
-    // A website tab: open or closed, and where it points.
-    if (v.account.kind === 'web') {
+    // A website or desktop app tab: open or closed, and where it points.
+    if (v.account.kind !== 'claude') {
       const open = v.state === 'docked';
-      r.pillText.textContent = open ? 'Open' : 'Closed';
-      r.meta.textContent = open ? hostOf(v.account.url) : `Closed · ${hostOf(v.account.url)} · you stay signed in`;
+      const where = whereOf(v.account);
+      r.pillText.textContent = open ? 'Open' : v.state === 'starting' ? 'Opening…' : 'Closed';
+      r.meta.textContent = open ? where : `Closed · ${where}${v.account.kind === 'web' ? ' · you stay signed in' : ''}`;
       r.action.textContent = open ? 'Show' : 'Open';
       r.action.setAttribute('aria-label', `${open ? 'Show' : 'Open'} ${v.name}`);
       r.action.dataset.mode = open ? 'open' : 'start';
@@ -653,7 +654,7 @@ const Home = (() => {
     return el('div', { class: 'mini' }, [el('b', { text: value }), el('span', { text: label })]);
   }
 
-  // A website tab's card: what it is and whether it is open. Usage and sessions are Claude's own, so there are none.
+  // A website or desktop app tab's card: what it is and whether it is open. Usage and sessions are Claude's own.
   function webCard(v, idx, animate) {
     const r = {};
     r.pillText = el('span');
@@ -674,12 +675,12 @@ const Home = (() => {
       el('header', { class: 'acard-head' }, [
         el('span', { class: 'dot' }),
         el('h3', { text: v.name }),
-        el('span', { class: 'tag', text: 'Website' }),
+        el('span', { class: 'tag', text: v.account.kind === 'app' ? 'Desktop app' : 'Website' }),
         el('span', { class: 'spacer' }),
         r.pill,
       ]),
       r.meta,
-      el('p', { class: 'recent-empty muted', text: 'Its own sign-in, separate from your browser and every other tab.' }),
+      el('p', { class: 'recent-empty muted', text: v.account.kind === 'app' ? 'A program on this PC, kept in this tab. Closing the tab closes it.' : 'Its own sign-in, separate from your browser and every other tab.' }),
       el('footer', { class: 'acard-foot' }, [el('span'), el('span', { class: 'acard-btns' }, [r.action])]),
     ]);
     fillLive(r, v);
@@ -688,7 +689,7 @@ const Home = (() => {
   }
 
   function card(v, idx, animate) {
-    if (v.account.kind === 'web') return webCard(v, idx, animate);
+    if (v.account.kind !== 'claude') return webCard(v, idx, animate);
     const r = {};
     r.pillText = el('span');
     r.pill = el('span', { class: 'pill' }, [el('i'), r.pillText]);

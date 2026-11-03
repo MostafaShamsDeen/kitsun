@@ -41,4 +41,5 @@ contextBridge.exposeInMainWorld('kitsun', {
   onUi: (fn) => ipcRenderer.on('ui', (_e, ui) => fn(ui)),
   getCatalog: (fresh) => ipcRenderer.invoke('catalog:get', fresh === true),
   getIt: (id) => ipcRenderer.invoke('catalog:get-it', id),
+  pickApp: () => ipcRenderer.invoke('app:pick'),
 });

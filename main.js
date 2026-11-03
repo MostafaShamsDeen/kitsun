@@ -32,7 +32,9 @@ const OLD_APP = { name: 'Multi Claude', id: 'local.multi-claude' };
 if (process.env.KITSUN_USER_DATA && !app.isPackaged) app.setPath('userData', path.resolve(process.env.KITSUN_USER_DATA));
 // The kinds of tab. lib/attention, search, stats, chrome and handoff are Claude-only and
 // only ever get Claude tabs (claudeTabs()).
-const TAB_KINDS = ['claude', 'web'];
+const TAB_KINDS = ['claude', 'web', 'app'];
+// A Store app's id as Windows starts it: <package family>!<app id>.
+const AUMID_RE = /^[\w.-]+_[a-z0-9]+![\w.-]+$/i;
 const ACCOUNT_ID_RE = /^[a-z0-9-]{1,64}$/;
 const DOCK_FLAG = '--disable-direct-composition';
 const CLAUDE_ALIAS_DIR = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps');
@@ -129,6 +131,12 @@ function sanitizeAccount(a) {
     const url = safeUrl(a.url);
     return url ? { ...base, url, main: false } : null;
   }
+  if (kind === 'app') {
+    // The program's exe (also how its windows are recognised); aumid: a Store app, which Windows has to start itself.
+    const exe = typeof a.exe === 'string' && path.isAbsolute(a.exe) && /\.exe$/i.test(a.exe) ? path.normalize(a.exe) : null;
+    const aumid = typeof a.aumid === 'string' && AUMID_RE.test(a.aumid) ? a.aumid : null;
+    return exe ? { ...base, exe, aumid, main: false } : null;
+  }
   return {
     ...base,
     main: a.main === true,
@@ -186,10 +194,16 @@ function sanitizeState(raw) {
 
 let state;
 
+// A settings file that can't be read is kept as profiles.json.unreadable-<time> before the defaults replace it, so the
+// tabs in it can be recovered.
 function loadState() {
+  let text;
+  try { text = fs.readFileSync(dataFile(), 'utf8'); } catch { return sanitizeState(null); }
   try {
-    return sanitizeState(JSON.parse(fs.readFileSync(dataFile(), 'utf8')));
-  } catch {
+    return sanitizeState(JSON.parse(text));
+  } catch (err) {
+    console.error('Could not read the settings file:', err);
+    try { fs.copyFileSync(dataFile(), `${dataFile()}.unreadable-${Date.now()}`); } catch { /* the defaults are used either way */ }
     return sanitizeState(null);
   }
 }
@@ -416,10 +430,12 @@ function forgetWindow(id) {
 
 // Puts every docked window back as a normal (hidden) Claude window, which keeps running like
 // a Claude window closed to the tray. Must run before our own window is destroyed.
+// A desktop app's window is handed back visible: unlike Claude it has no tray icon to bring it back from.
 function undockAll({ show = false } = {}) {
   for (const [id, i] of instances) {
     if (!i.hwnd) continue;
-    try { win32.undock(i.hwnd, i.saved, { show }); } catch { /* window already gone */ }
+    const a = accountById(id);
+    try { win32.undock(i.hwnd, i.saved, { show: show || Boolean(a && a.kind === 'app') }); } catch { /* window already gone */ }
     forgetWindow(id);
     if (i.status === 'docked') i.status = 'starting';
   }
@@ -571,6 +587,146 @@ function placeView(view, r) {
   view.setVisible(true);
 }
 
+// ---------- desktop app tabs ----------
+
+// A desktop app tab docks the main window of an installed program, the way a Claude tab docks Claude's. Its windows are
+// told apart by the exe of the process that owns them: that exe, or another in its install folder (some apps show their
+// window from a helper exe). Opening the tab docks a window of it that is already open and that no tab holds (e.g. the
+// one Kitsun handed back when it last quit), else starts the program and waits for its window. Closing the tab closes
+// that window as its X button would, so the app can ask to save first, in its pane.
+// Chromium-based apps (Electron: VS Code, Cursor, LM Studio…) are started with Claude's switches that keep a docked window
+// from being throttled as if covered, but not DOCK_FLAG: VS Code (Electron 43) painted nothing docked with it, and fine
+// without it. So one already open in its own window is docked as it is.
+const APP_WAIT = 90000; // how long a starting app gets to show its window (VS Code's first start after an update: ~1 min)
+const APP_GONE_WAIT = 8000; // after its window closed, how long it gets to show another one (some apps swap windows)
+const APP_CLOSE_WAIT = 15000; // how long Close waits for the window to go (the app may be asking to save)
+const CHROMIUM_ARGS = ['--disable-backgrounding-occluded-windows', '--disable-features=CalculateNativeWinOcclusion'];
+
+// Whether a process's exe belongs to the app: its own exe, or one in its install folder unless that folder is a shared
+// one (Windows' own folders, or a drive's root), where it would match unrelated programs.
+function appMatcher(exe) {
+  const want = exe.toLowerCase();
+  const dir = path.dirname(want);
+  const windir = (process.env.WINDIR || 'C:\\Windows').toLowerCase();
+  const shared = dir === path.parse(want).root || dir === windir || dir.startsWith(windir + path.sep);
+  return (p) => { const q = p.toLowerCase(); return q === want || (!shared && q.startsWith(dir + path.sep)); };
+}
+
+// Chromium's resource files next to the exe, or one folder down (VS Code keeps them in a folder per version).
+function isChromiumApp(exe) {
+  const dir = path.dirname(exe);
+  const has = (d) => ['chrome_100_percent.pak', path.join('resources', 'app.asar')].some((f) => fs.existsSync(path.join(d, f)));
+  if (has(dir)) return true;
+  try { return fs.readdirSync(dir, { withFileTypes: true }).some((e) => e.isDirectory() && has(path.join(dir, e.name))); } catch { return false; }
+}
+
+// Docks a visible window of the app that no tab holds; true if there was one.
+function dockAppWindow(account) {
+  const i = inst(account.id);
+  const held = new Set([...instances.values()].map((x) => x.hwnd).filter(Boolean));
+  const w = win32.appWindows(appMatcher(account.exe)).find((x) => x.visible && !held.has(x.hwnd) && x.hwnd !== parentHwnd);
+  if (!w) return false;
+  try {
+    i.saved = win32.dock(w.hwnd, parentHwnd);
+  } catch (err) {
+    i.error = err.message;
+    return false;
+  }
+  Object.assign(i, { hwnd: w.hwnd, pid: w.pid, status: 'docked', error: null, exit: null, lost: false });
+  console.log(`${account.name}: docked "${w.title}" (${path.basename(w.exe)}, pid ${w.pid})`);
+  i.startedAt ??= Date.now();
+  layout();
+  pushStatus();
+  if (shownPanes().some((p) => state.ui.panes[p] === account.id)) setTimeout(focusActivePane, 50);
+  return true;
+}
+
+function appFailed(account, error) {
+  const i = inst(account.id);
+  Object.assign(i, { status: 'stopped', pid: null, error, lost: false });
+  console.log(`${account.name}: ${error}`);
+  pushStatus();
+  return { ok: false, error };
+}
+
+async function startApp(account) {
+  const i = inst(account.id);
+  if (i.hwnd || i.status === 'starting') return { ok: true };
+  i.stoppedByUser = false;
+  i.exit = null;
+  i.error = null;
+  if (!fs.existsSync(account.exe)) return appFailed(account, `${account.name} isn't at ${account.exe} any more. Remove this tab and add it again.`);
+  Object.assign(i, { status: 'starting', launchedAt: Date.now(), lost: false });
+  pushStatus();
+  if (dockAppWindow(account)) return { ok: true };
+  const chromium = !account.aumid && isChromiumApp(account.exe);
+  try {
+    // A Store app is started by Windows (it can't be run from its exe), so it gets no extra switches.
+    const [cmd, args] = account.aumid ? ['explorer.exe', [`shell:AppsFolder\\${account.aumid}`]] : [account.exe, chromium ? CHROMIUM_ARGS : []];
+    await new Promise((resolve, reject) => {
+      const child = spawn(cmd, args, { cwd: path.dirname(account.exe), detached: true, stdio: 'ignore', env: cleanEnv() });
+      child.once('error', reject);
+      child.once('spawn', () => { child.unref(); resolve(); });
+    });
+  } catch (err) {
+    return appFailed(account, `${account.name} couldn't be started: ${err.message}`);
+  }
+  console.log(`${account.name}: started ${account.aumid || account.exe}${chromium ? ' (Chromium: not throttled while covered)' : ''}`);
+  watchApps();
+  return { ok: true };
+}
+
+// Close: the window is asked to close, and stays docked meanwhile, so a "save your changes?" question shows in its pane.
+// watchWindows() marks the tab closed once the window is gone. Answering Cancel keeps it open, as with its own X.
+async function stopApp(account) {
+  const i = inst(account.id);
+  const hwnd = i.hwnd;
+  if (!hwnd) {
+    Object.assign(i, { status: 'stopped', pid: null, stoppedByUser: true, lost: false, exit: { reason: 'stopped', at: Date.now(), reopening: false, gaveUp: false } });
+    pushStatus();
+    return { ok: true };
+  }
+  if (win32.isHung(hwnd)) return { ok: false, error: `${account.name} isn't responding, so it can't be asked to close.` };
+  i.stoppedByUser = true;
+  i.exit = { reason: 'stopped', at: Date.now(), reopening: false, gaveUp: false };
+  win32.askToClose(hwnd);
+  const until = Date.now() + APP_CLOSE_WAIT;
+  while (Date.now() < until && win32.isWindow(hwnd) && i.hwnd === hwnd) await sleep(250);
+  if (!win32.isWindow(hwnd)) {
+    if (i.hwnd === hwnd) forgetWindow(account.id);
+    Object.assign(i, { status: 'stopped', pid: null });
+    layout();
+    pushStatus();
+    return { ok: true };
+  }
+  i.stoppedByUser = false;
+  i.exit = null;
+  return { ok: false, error: `${account.name} is still open. It may be asking you something in its tab.` };
+}
+
+// Looks every second for the window of each app tab that is starting, or whose window just closed.
+let appTimer = null;
+function watchApps() {
+  if (appTimer) return;
+  appTimer = setInterval(() => {
+    let waiting = false;
+    for (const a of closing ? [] : state.accounts) {
+      if (a.kind !== 'app') continue;
+      const i = inst(a.id);
+      if (i.status !== 'starting' || dockAppWindow(a)) continue;
+      if (Date.now() - i.launchedAt < (i.lost ? APP_GONE_WAIT : APP_WAIT)) { waiting = true; continue; }
+      if (i.lost) {
+        // Closed from inside the app (File > Exit…): the tab shows it closed, with Open.
+        Object.assign(i, { status: 'stopped', pid: null, lost: false, error: null, exit: { reason: 'closed', at: Date.now(), reopening: false, gaveUp: false } });
+        pushStatus();
+      } else {
+        appFailed(a, `No window of ${a.name} showed up. Some Microsoft Store apps can't be shown inside Kitsun.`);
+      }
+    }
+    if (!waiting) { clearInterval(appTimer); appTimer = null; }
+  }, 1000);
+}
+
 // ---------- layout ----------
 
 let stats = null; // the home screen's statistics collector, created once the app is ready
@@ -649,13 +805,22 @@ function watchWindows() {
     if (!i.hwnd || !win32.isWindow(i.hwnd)) {
       if (i.hwnd) {
         forgetWindow(id);
-        // Give it time to show a new window; scanProcesses() finds out if the process is gone instead.
-        if (i.status !== 'stopping') { i.status = 'starting'; i.launchedAt = now; }
+        const a = accountById(id);
+        if (a && a.kind === 'app') {
+          // Closed with the tab's Close (stoppedByUser), or by the app itself: then it gets a moment to show another.
+          if (i.stoppedByUser) Object.assign(i, { status: 'stopped', pid: null });
+          else Object.assign(i, { status: 'starting', launchedAt: now, lost: true });
+        } else if (i.status !== 'stopping') {
+          // Give it time to show a new window; scanProcesses() finds out if the process is gone instead.
+          i.status = 'starting';
+          i.launchedAt = now;
+        }
         lost = true;
       }
       if (i.hungSince || i.frozen) { i.hungSince = 0; changed ||= i.frozen; i.frozen = false; }
       continue;
     }
+    if (!isClaudeTab(id)) continue; // the freeze watchdog (Wait / Restart) is Claude's
     if (win32.isHung(i.hwnd)) {
       i.hungSince ||= now;
       if (!i.frozen && i.status === 'docked' && now - i.hungSince > FREEZE_AFTER && now > (i.waitUntil || 0)) {
@@ -685,7 +850,7 @@ function watchWindows() {
 function enforce() {
   if (!mainWindow || closing) return;
   // Runs in every state, also while hidden in the tray: a copy that closes then must still be noticed and reopened.
-  if (watchWindows()) { layout(); pushStatus(); watchStartup(); }
+  if (watchWindows()) { layout(); pushStatus(); watchStartup(); watchApps(); }
   if (windowAway()) {
     // All docked windows are hidden while minimised or in the tray, so one that shows itself means Claude
     // asked for attention (e.g. a notification was clicked): bring Kitsun back with that account showing.
@@ -827,6 +992,7 @@ async function startAccount(id, { auto = false } = {}) {
     i.exit = null;
     return startWeb(account);
   }
+  if (account.kind === 'app') return startApp(account);
   if (i.status === 'external') return { ok: false, error: 'external' };
   if (i.status === 'stopping') return { ok: false, error: `${account.name} is still quitting. Try again in a moment.` };
   if (!auto) {
@@ -1314,6 +1480,7 @@ async function stopAccount(id, { force = false } = {}) {
     pushStatus();
     return { ok: true };
   }
+  if (account.kind === 'app') return stopApp(account);
   if (i.status === 'stopping') return { ok: false, error: `${account.name} is already stopping.` };
   if (!(await scanProcesses())) return { ok: false, error: 'Could not check whether its Claude is running. Try again.' };
   if (i.status === 'external') return { ok: false, error: `${account.name} is open in its own window. Quit it from that window.` };
@@ -1746,7 +1913,7 @@ function updateTrayMenu() {
     // '&' marks a menu shortcut letter on Windows; '&&' shows it as itself.
     ...state.accounts.map(({ id, name }) => ({ label: name.replace(/&/g, '&&'), click: thenShow(() => { if (accountById(id)) showAccount(id); }) })),
     { type: 'separator' },
-    { label: 'Start all accounts', click: startAllAccounts },
+    { label: 'Open all tabs', click: startAllAccounts },
     // The page asks for confirmation first, so this shows the window.
     { label: 'Stop', submenu: state.accounts.map(({ id, name }) => {
       const i = inst(id);
@@ -2039,7 +2206,7 @@ ipcMain.handle('account:restart-here', async (event, id) => {
 ipcMain.handle('account:save', async (event, input) => {
   if (!fromShell(event) || !input || typeof input !== 'object') return null;
   const existing = accountById(input.id);
-  const kind = existing ? existing.kind : input.kind === 'web' ? 'web' : 'claude';
+  const kind = existing ? existing.kind : ['web', 'app'].includes(input.kind) ? input.kind : 'claude';
   const entry = !existing && typeof input.catalogId === 'string' ? findEntry(input.catalogId) : null;
   if (entry && entry.kind !== kind) return null;
   if (kind === 'web') {
@@ -2055,6 +2222,25 @@ ipcMain.handle('account:save', async (event, input) => {
       if (!ACCOUNT_ID_RE.test(input.id) || accountById(input.id)) return null;
       state.accounts.push(next);
     }
+    saveState();
+    updateTrayMenu();
+    return state.accounts;
+  }
+  if (kind === 'app') {
+    // The exe comes from the catalogue's detection, or from the file the user picked in app:pick (named by its token);
+    // never a path from the page.
+    let { exe, aumid } = existing || { exe: null, aumid: null };
+    if (!existing) {
+      if (!ACCOUNT_ID_RE.test(input.id) || accountById(input.id)) return null;
+      const picked = pickedApp && typeof input.pick === 'string' && input.pick === pickedApp.token ? pickedApp : null;
+      const found = !picked && entry && !entry.custom && catalog ? (await catalog.detect())[entry.id] : null;
+      if (picked) ({ exe } = picked);
+      else if (found && found.exe) ({ exe, aumid } = found);
+    }
+    const next = sanitizeAccount({ id: input.id, kind, name: input.name, color: input.color, exe, aumid, catalogId: existing ? existing.catalogId : entry && entry.id });
+    if (!next) return null;
+    if (existing) Object.assign(existing, next);
+    else { state.accounts.push(next); pickedApp = null; }
     saveState();
     updateTrayMenu();
     return state.accounts;
@@ -2102,6 +2288,12 @@ ipcMain.handle('account:remove', async (event, id) => {
     try { await session.fromPartition(partitionOf(id)).clearStorageData(); } catch (err) { console.error('Could not clear', id, err); }
     try { fs.rmSync(path.join(app.getPath('userData'), 'Partitions', `tab-${id}`), { recursive: true, force: true }); } catch { /* cleared above; the folder goes next start */ }
     preparedSessions.delete(id);
+    return forgetTab(id);
+  }
+  if (account.kind === 'app') {
+    // Its app keeps running, handed back as a normal window; nothing of it is deleted.
+    const i = inst(id);
+    if (i.hwnd) { try { win32.undock(i.hwnd, i.saved, { show: true }); } catch { /* window gone */ } forgetWindow(id); }
     return forgetTab(id);
   }
   if (!(await scanProcesses())) return { ok: false, error: 'Could not check whether its Claude window is running. Try again.' };
@@ -2165,6 +2357,26 @@ ipcMain.handle('catalog:get-it', (event, id) => {
   if (!e || !e.get) return false;
   openExternal(e.get);
   return true;
+});
+
+// "Any app", or an app the catalogue couldn't find the exe of: the user picks the program. Main keeps the path and gives
+// the page a token for account:save, so the page never names a program to run.
+let pickedApp = null;
+ipcMain.handle('app:pick', async (event) => {
+  if (!fromShell(event)) return null;
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: 'Pick the app to open in a tab',
+    defaultPath: path.join(process.env.LOCALAPPDATA || os.homedir(), 'Programs'),
+    filters: [{ name: 'Programs', extensions: ['exe'] }],
+    properties: ['openFile'],
+  });
+  const exe = !r.canceled && r.filePaths[0];
+  if (!exe || !/\.exe$/i.test(exe)) return null;
+  if (samePath(exe, process.execPath) || /\\WindowsApps\\(Claude_|claude-desktop)/i.test(exe)) {
+    return { error: 'Add Claude with the Claude entry instead: it gets its own sign-in per tab.' };
+  }
+  pickedApp = { token: `${Date.now()}-${Math.random().toString(36).slice(2)}`, exe };
+  return { token: pickedApp.token, file: exe, name: path.basename(exe, path.extname(exe)) };
 });
 
 ipcMain.handle('account:sign-in-link', async (event, id, text) => {
@@ -2285,6 +2497,9 @@ if (app.isPackaged && !process.argv.includes('--quit') && settingsRedirected() &
   app.exit(0);
 } else if (!app.requestSingleInstanceLock()) {
   app.quit();
+} else if (process.argv.includes('--quit')) {
+  // Nothing was running to quit: a `--quit` never starts Kitsun itself.
+  app.exit(0);
 } else {
   // Opening Kitsun again (Start menu, taskbar) shows the running one, also from the tray.
   // A second start from the login item (--hidden) leaves it where it is.
