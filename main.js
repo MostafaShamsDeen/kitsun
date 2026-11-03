@@ -2648,6 +2648,15 @@ function takeOverOldShellItems() {
     if (state.settings.startWithWindows) applyLoginItem();
   }
   try { fs.rmSync(path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', `${OLD_APP.name}.lnk`), { force: true }); } catch { /* cosmetic */ }
+  // A taskbar pin of the old app would start the old app (with the old logo). It is pointed at Kitsun in place:
+  // Windows lets no program pin itself, and the pin is tied to that file name, so it can't be renamed either (its
+  // tooltip keeps the old name until it is unpinned and Kitsun is pinned again). The app ID joins it to Kitsun's window.
+  const pin = path.join(app.getPath('appData'), 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar', `${OLD_APP.name}.lnk`);
+  try {
+    if (fs.existsSync(pin) && !samePath(shell.readShortcutLink(pin).target, process.execPath)) {
+      shell.writeShortcutLink(pin, 'replace', { target: process.execPath, appUserModelId: APP_ID, icon: process.execPath, iconIndex: 0, description: 'All your AIs in one window' });
+    }
+  } catch { /* cosmetic */ }
 }
 
 // When Kitsun is started from inside a Store app (e.g. by a Claude Code session in the Claude

@@ -1057,12 +1057,17 @@ kbd {
 @keyframes sway { from { transform: rotate(-3deg); } to { transform: rotate(3deg); } }
 @keyframes wag { from { transform: rotate(-9deg); } to { transform: rotate(9deg); } }
 @keyframes glow { 50% { filter: drop-shadow(0 0 2px var(--needs)); } }
-/* The head: blinks now and then, perks up its ears when a tab needs you, and dozes when every tab is closed. */
-.fox-mascot .fox-eyes { transform-box: fill-box; transform-origin: center; animation: blink 5.5s infinite; }
+/* The head: content (closed happy eyes) as a rule; wide-eyed, blinking and ears up when a tab needs you; dozing (flat eyes)
+   when every tab is closed. */
+.fox-eyes { display: none; }
+.fox-mascot .fox-eyes { transform-box: fill-box; transform-origin: center; animation: blink 4.5s infinite; }
+.fox-mascot .fox-eyes-happy { transform-box: fill-box; transform-origin: center; transition: transform .3s; }
 .fox-mascot .fox-ears { transform-box: view-box; transition: transform .3s; }
+.fox-mascot.fox-alert .fox-eyes { display: inline; }
+.fox-mascot.fox-alert .fox-eyes-happy { display: none; }
 .fox-mascot.fox-alert .fox-ears { transform: translateY(-3px); }
 .fox-mascot.fox-alert .fox-head { animation: perk 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 90%; }
-.fox-mascot.fox-asleep .fox-eyes { animation: none; transform: scaleY(.15); }
+.fox-mascot.fox-asleep .fox-eyes-happy { transform: scaleY(.35); }
 @keyframes blink { 0%, 95%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
 @keyframes perk { 50% { transform: rotate(-4deg); } }
 @media (max-width: 900px) { .fox-box { width: 190px; } }

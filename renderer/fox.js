@@ -1,7 +1,7 @@
 // Kitsun's fox: the logo mark (the title bar's Home button, the app icon) and Home's mascot, a kitsune that has one
 // tail per tab (up to nine, as the legend has it). Each tail is its tab's colour and shows how that tab is doing:
 // swaying while it runs, wagging while Claude works in it, glowing while it needs you, faded while it is closed.
-// Plain SVG built here, so scripts/make-icon.js can draw the same mark into the app icon.
+// Plain SVG built here, so scripts/draw-icon.js can draw the same fox into the app icon.
 window.KitsunFox = (() => {
   const NS = 'http://www.w3.org/2000/svg';
   const MAX_TAILS = 9;
@@ -13,28 +13,41 @@ window.KitsunFox = (() => {
     return n;
   }
 
-  // The head on a 64 × 64 grid: two-tone faceted fur, dark inner ears, a cream mask, almond eyes and a nose.
-  function head({ id = 'fx' } = {}) {
-    const grad = svg('linearGradient', { id: `${id}-fur`, x1: '0', y1: '0', x2: '0', y2: '1' }, [
-      svg('stop', { offset: '0', 'stop-color': '#ff9a4d' }),
-      svg('stop', { offset: '1', 'stop-color': '#f2622b' }),
+  const INK = '#1d0d06';
+  // The head on a 64 × 64 grid: tall rounded ears with dark insides, a round head with cheek tufts in a warm fur gradient,
+  // a cream mask rising into a point between the eyes, and a small nose. Two pairs of eyes: happy closed arcs (the
+  // usual face, and the logo's), and open almond eyes with a glint, which the mascot shows when a tab needs you.
+  // both: draw both pairs, for the mascot (styles.css shows one); otherwise just the happy pair.
+  function head({ id = 'fx', both = false } = {}) {
+    const fur = svg('linearGradient', { id: `${id}-fur`, x1: '0', y1: '0', x2: '0', y2: '1' }, [
+      svg('stop', { offset: '0', 'stop-color': '#ffb06a' }),
+      svg('stop', { offset: '.55', 'stop-color': '#ff7b3a' }),
+      svg('stop', { offset: '1', 'stop-color': '#e2531c' }),
     ]);
+    const cream = svg('linearGradient', { id: `${id}-cream`, x1: '0', y1: '0', x2: '0', y2: '1' }, [
+      svg('stop', { offset: '0', 'stop-color': '#ffffff' }),
+      svg('stop', { offset: '1', 'stop-color': '#f6e6d8' }),
+    ]);
+    const furFill = `url(#${id}-fur)`;
+    const arc = (d) => svg('path', { d, fill: 'none', stroke: INK, 'stroke-width': '2.3', 'stroke-linecap': 'round' });
     return svg('g', { class: 'fox-head' }, [
-      svg('defs', {}, [grad, SHEEN('ic-sheen')]),
+      svg('defs', {}, [fur, cream]),
       svg('g', { class: 'fox-ears' }, [
-        svg('path', { d: 'M8 5 L28 21 L13 31 Z', fill: `url(#${id}-fur)` }),
-        svg('path', { d: 'M56 5 L36 21 L51 31 Z', fill: `url(#${id}-fur)` }),
-        svg('path', { d: 'M12.5 12 L23.5 21 L15.5 27 Z', fill: '#3b1a0d' }),
-        svg('path', { d: 'M51.5 12 L40.5 21 L48.5 27 Z', fill: '#3b1a0d' }),
+        svg('path', { d: 'M9 31 C 8 21 9 11 14 4.5 C 15.5 3 17 3.4 18 4.6 C 22 9.5 26 15 28.5 21 Z', fill: furFill }),
+        svg('path', { d: 'M55 31 C 56 21 55 11 50 4.5 C 48.5 3 47 3.4 46 4.6 C 42 9.5 38 15 35.5 21 Z', fill: furFill }),
+        svg('path', { d: 'M13.5 25 C 13 18 14 12 16.2 8.4 C 19 12 21.8 16.5 23.6 20.5 Z', fill: '#3b160a' }),
+        svg('path', { d: 'M50.5 25 C 51 18 50 12 47.8 8.4 C 45 12 42.2 16.5 40.4 20.5 Z', fill: '#3b160a' }),
       ]),
-      svg('path', { d: 'M13 19 L32 23 L51 19 L56 34 L32 59 L8 34 Z', fill: `url(#${id}-fur)` }),
-      svg('path', { d: 'M32 23 L51 19 L56 34 L32 59 Z', fill: '#c94a1c', opacity: '.28' }),
-      svg('path', { d: 'M8 34 L21 35.5 L32 47 L43 35.5 L56 34 L32 59 Z', fill: '#fff3e6' }),
-      svg('g', { class: 'fox-eyes' }, [
-        svg('path', { d: 'M19.5 30.5 Q24 26.5 28.5 31 Q24 33.5 19.5 30.5 Z', fill: '#1b0e08' }),
-        svg('path', { d: 'M44.5 30.5 Q40 26.5 35.5 31 Q40 33.5 44.5 30.5 Z', fill: '#1b0e08' }),
+      svg('path', { d: 'M32 15 C 41.5 15 49.5 20.5 52.5 29 C 55.5 31.5 58.5 34.5 61 38.5 C 56 39.5 51.5 40.5 47.5 42.5 C 43.5 49 38 54.5 32 59 C 26 54.5 20.5 49 16.5 42.5 C 12.5 40.5 8 39.5 3 38.5 C 5.5 34.5 8.5 31.5 11.5 29 C 14.5 20.5 22.5 15 32 15 Z', fill: furFill }),
+      svg('path', { d: 'M3 38.5 C 8 39.5 12.5 40.5 16.5 42.5 C 20.5 49 26 54.5 32 59 C 38 54.5 43.5 49 47.5 42.5 C 51.5 40.5 56 39.5 61 38.5 C 56.5 36 51 35.2 45.5 36.6 C 40.5 38 36 41.5 32 46.5 C 28 41.5 23.5 38 18.5 36.6 C 13 35.2 7.5 36 3 38.5 Z', fill: `url(#${id}-cream)` }),
+      svg('g', { class: 'fox-eyes-happy' }, [arc('M20.5 32.5 Q 24 29 27.5 32.5'), arc('M43.5 32.5 Q 40 29 36.5 32.5')]),
+      both && svg('g', { class: 'fox-eyes' }, [
+        svg('path', { d: 'M20 32.5 C 21.5 30 25 29.4 27.5 31.6 C 25.6 34 22 34.2 20 32.5 Z', fill: INK }),
+        svg('path', { d: 'M44 32.5 C 42.5 30 39 29.4 36.5 31.6 C 38.4 34 42 34.2 44 32.5 Z', fill: INK }),
+        svg('circle', { cx: '24.4', cy: '31.3', r: '.9', fill: '#fff' }),
+        svg('circle', { cx: '39.6', cy: '31.3', r: '.9', fill: '#fff' }),
       ]),
-      svg('path', { d: 'M28.6 52.2 Q32 50.6 35.4 52.2 L32 56.4 Z', fill: '#1b0e08' }),
+      svg('path', { d: 'M28.8 55.2 C 30.8 53.8 33.2 53.8 35.2 55.2 C 34.6 57.4 33.4 58.6 32 59 C 30.6 58.6 29.4 57.4 28.8 55.2 Z', fill: INK }),
     ]);
   }
 
@@ -68,7 +81,7 @@ window.KitsunFox = (() => {
   // frozen. onPick(id) runs when a tail is clicked.
   function mascot({ onPick = null } = {}) {
     const tails = svg('g', { class: 'fox-tails' });
-    const face = svg('g', { transform: 'translate(72 76) scale(1.5)' }, [head({ id: 'fxh' })]);
+    const face = svg('g', { transform: 'translate(67 68) scale(1.65)' }, [head({ id: 'fxh', both: true })]);
     const root = svg('svg', { class: 'fox-mascot', viewBox: '0 0 240 180', role: 'img' }, [
       svg('defs', {}, [SHEEN('fx-sheen')]),
       svg('ellipse', { class: 'fox-shadow', cx: 120, cy: 172, rx: 50, ry: 5 }),
@@ -123,22 +136,22 @@ window.KitsunFox = (() => {
 
   const MOOD_TEXT = { live: 'open', working: 'working', needs: 'needs you', starting: 'starting', stopped: 'closed', frozen: 'not responding' };
 
-  // The app icon: the head over three fanned tails on a night-ink rounded square (scripts/make-icon.js draws it).
+  // The app icon: the head alone on a night-ink rounded tile, with a soft fox-orange glow behind it (tails were too busy
+  // at taskbar sizes). scripts/draw-icon.js draws it into build/icon.png.
   function icon() {
-    const grad = svg('linearGradient', { id: 'ic-bg', x1: '0', y1: '0', x2: '1', y2: '1' }, [
-      svg('stop', { offset: '0', 'stop-color': '#1d1b33' }),
+    const bg = svg('linearGradient', { id: 'ic-bg', x1: '0', y1: '0', x2: '1', y2: '1' }, [
+      svg('stop', { offset: '0', 'stop-color': '#1f1c38' }),
       svg('stop', { offset: '1', 'stop-color': '#0c0e14' }),
     ]);
-    const tail = (angle, color) => svg('g', { transform: tailAt(128, 170, angle, 1) }, [
-      svg('path', { d: TAIL, fill: color }),
-      svg('path', { d: TAIL, fill: 'url(#ic-sheen)' }),
-      svg('path', { d: TIP, fill: '#fff3e6' }),
+    const glow = svg('radialGradient', { id: 'ic-glow', cx: '.5', cy: '.55', r: '.5' }, [
+      svg('stop', { offset: '0', 'stop-color': '#ff7b3a', 'stop-opacity': '.35' }),
+      svg('stop', { offset: '1', 'stop-color': '#ff7b3a', 'stop-opacity': '0' }),
     ]);
     return svg('svg', { xmlns: NS, viewBox: '0 0 256 256', width: 256, height: 256 }, [
-      svg('defs', {}, [grad]),
+      svg('defs', {}, [bg, glow]),
       svg('rect', { x: 8, y: 8, width: 240, height: 240, rx: 56, fill: 'url(#ic-bg)' }),
-      tail(-46, '#8b7bff'), tail(46, '#ffb547'), tail(-14, '#ff7b3a'), tail(14, '#ff9a4d'),
-      svg('g', { transform: 'translate(64 92) scale(2)' }, [head({ id: 'ic' })]),
+      svg('circle', { cx: 128, cy: 140, r: 110, fill: 'url(#ic-glow)' }),
+      svg('g', { transform: 'translate(36 34) scale(2.88)' }, [head({ id: 'ic' })]),
     ]);
   }
 
