@@ -7,7 +7,7 @@
 // Chromium only paints inside another program's window when DirectComposition is off, so every copy
 // is started with --disable-direct-composition; a copy started without it can't be docked.
 
-const { app, BrowserWindow, ipcMain, shell, dialog, Menu, Tray, nativeImage, screen, globalShortcut, Notification } = require('electron');
+const { app, BrowserWindow, WebContentsView, session, clipboard, ipcMain, shell, dialog, Menu, Tray, nativeImage, screen, globalShortcut, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -20,15 +20,19 @@ const { createAttention } = require('./lib/attention');
 const { createSearch, sessionLink, SESSION_ID_RE, MAX_QUERY } = require('./lib/search');
 const { createChrome, PROFILE_DIR_RE } = require('./lib/chrome');
 const { continueSession } = require('./lib/handoff');
+const { createCatalog, findEntry, safeUrl } = require('./lib/catalog');
 
 const APP_ID = 'local.kitsun';
 const APP_NAME = 'Kitsun';
 // What this app was called before: its settings folder, login item, Start Menu shortcut and install folder are taken
-// over once (see takeOverOldApp).
+// over once (takeOverOldSettings, quitOldApp, takeOverOldShellItems).
 const OLD_APP = { name: 'Multi Claude', id: 'local.multi-claude' };
-// The kinds of tab. Only Claude tabs so far; lib/attention, search, stats, chrome and handoff are Claude-only and
+// Dev aid: KITSUN_USER_DATA=<folder> runs from source with its own settings (and single-instance lock), e.g. a test
+// profiles.json with only website tabs, so it never touches the Claude windows the installed Kitsun holds.
+if (process.env.KITSUN_USER_DATA && !app.isPackaged) app.setPath('userData', path.resolve(process.env.KITSUN_USER_DATA));
+// The kinds of tab. lib/attention, search, stats, chrome and handoff are Claude-only and
 // only ever get Claude tabs (claudeTabs()).
-const TAB_KINDS = ['claude'];
+const TAB_KINDS = ['claude', 'web'];
 const ACCOUNT_ID_RE = /^[a-z0-9-]{1,64}$/;
 const DOCK_FLAG = '--disable-direct-composition';
 const CLAUDE_ALIAS_DIR = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps');
@@ -110,12 +114,23 @@ function sanitizeSettings(raw) {
   return out;
 }
 
+// null for an entry that can't be a tab (a website tab without a usable address).
 function sanitizeAccount(a) {
-  return {
+  const kind = TAB_KINDS.includes(a.kind) ? a.kind : 'claude'; // files from before tab kinds only had Claude accounts
+  const base = {
     id: a.id,
-    kind: TAB_KINDS.includes(a.kind) ? a.kind : 'claude', // files from before tab kinds only had Claude accounts
+    kind,
     name: String(a.name || 'Account').slice(0, 40),
     color: /^#[0-9a-f]{6}$/i.test(a.color) ? a.color : '#888888',
+    // The catalogue entry it was added from (lib/catalog.js), if any; only used to show where it came from.
+    catalogId: typeof a.catalogId === 'string' && findEntry(a.catalogId) ? a.catalogId : null,
+  };
+  if (kind === 'web') {
+    const url = safeUrl(a.url);
+    return url ? { ...base, url, main: false } : null;
+  }
+  return {
+    ...base,
     main: a.main === true,
     shareCode: a.main === true ? true : a.shareCode !== false,
     // A Chrome profile folder picked by hand for the Chrome button; null = automatic (lib/chrome.js). account:save also
@@ -130,11 +145,15 @@ function sanitizeState(raw) {
   if (Array.isArray(raw.accounts)) {
     const seen = new Set();
     const raws = raw.accounts.filter((a) => a && ACCOUNT_ID_RE.test(a.id) && !seen.has(a.id) && seen.add(a.id));
-    // Exactly one main account, always first.
-    let mi = raws.findIndex((a) => a.main === true);
-    if (mi < 0) mi = raws.findIndex((a) => a.id === 'main');
-    const main = mi >= 0 ? sanitizeAccount({ ...raws[mi], main: true }) : sanitizeAccount(DEFAULT_STATE.accounts[0]);
-    state.accounts = [main, ...raws.filter((_, i) => i !== mi).map((a) => sanitizeAccount({ ...a, main: false }))];
+    const isClaude = (a) => (a.kind || 'claude') === 'claude';
+    // At most one main account (the normal Claude app), always first. A list of only Claude tabs always has one, as
+    // before tab kinds; a list with other kinds of tab doesn't have to have Claude at all.
+    let mi = raws.findIndex((a) => isClaude(a) && a.main === true);
+    if (mi < 0) mi = raws.findIndex((a) => isClaude(a) && a.id === 'main');
+    const others = raws.filter((_, i) => i !== mi).map((a) => sanitizeAccount({ ...a, main: false })).filter(Boolean);
+    const main = mi >= 0 ? sanitizeAccount({ ...raws[mi], main: true })
+      : raws.every(isClaude) ? sanitizeAccount(DEFAULT_STATE.accounts[0]) : null;
+    state.accounts = main ? [main, ...others] : others;
   }
   const ui = raw.ui && typeof raw.ui === 'object' ? raw.ui : {};
   const before = Array.isArray(ui.panes) ? ui.panes.slice(0, MAX_PANES) : [];
@@ -195,6 +214,7 @@ function removeOldLeftovers() {
 
 const accountById = (id) => state.accounts.find((a) => a.id === id);
 const claudeTabs = () => state.accounts.filter((a) => a.kind === 'claude');
+const isClaudeTab = (id) => { const a = accountById(id); return Boolean(a && a.kind === 'claude'); };
 
 // ---------- the Claude app ----------
 
@@ -405,6 +425,152 @@ function undockAll({ show = false } = {}) {
   }
 }
 
+// ---------- website tabs ----------
+
+// A website tab is a WebContentsView laid over its pane body, as a Claude window is docked over its pane. Each tab has
+// its own persistent browser partition, so its sign-ins, cookies and storage are its own: two ChatGPT tabs can be two
+// accounts. Stopping one closes the page (freeing its memory); its sign-in stays.
+const webViews = new Map(); // tab id -> WebContentsView
+const partitionOf = (id) => `persist:tab-${id}`;
+// Sign-in pages a site may open in a popup (and expect to talk back to): they open in a small window with the tab's own
+// partition. Other links to other sites go to the default browser.
+const AUTH_HOSTS = /(^|\.)(accounts\.google\.com|login\.microsoftonline\.com|login\.live\.com|appleid\.apple\.com|github\.com|auth\.openai\.com|auth0\.com|okta\.com|x\.com|twitter\.com|facebook\.com|discord\.com|stytch\.com|workos\.com)$/i;
+// What a site may ask for: clipboard, notifications, full screen, and the microphone/camera (voice modes).
+const WEB_PERMISSIONS = new Set(['clipboard-read', 'clipboard-sanitized-write', 'notifications', 'fullscreen', 'media']);
+
+const hostOf = (u) => { try { return new URL(u).hostname.toLowerCase(); } catch { return ''; } };
+// chat.example.com and example.com are the same site here.
+function sameSite(a, b) {
+  const base = (h) => h.split('.').slice(-2).join('.');
+  const ha = hostOf(a);
+  const hb = hostOf(b);
+  return Boolean(ha && hb && base(ha) === base(hb));
+}
+
+function openExternal(url) {
+  if (/^https?:\/\//i.test(String(url))) shell.openExternal(url).catch(() => {});
+}
+
+// Chromium's own user agent, without the Electron and Kitsun parts that some sites refuse (Google's sign-in among them).
+let cleanUA = null;
+function browserUserAgent() {
+  cleanUA ??= session.defaultSession.getUserAgent().replace(/\s(Electron|Kitsun)\/\S+/gi, '');
+  return cleanUA;
+}
+
+const preparedSessions = new Set();
+function webSessionFor(id) {
+  const ses = session.fromPartition(partitionOf(id));
+  if (!preparedSessions.has(id)) {
+    preparedSessions.add(id);
+    ses.setUserAgent(browserUserAgent());
+    ses.setPermissionRequestHandler((_wc, permission, cb) => cb(WEB_PERMISSIONS.has(permission)));
+    ses.setPermissionCheckHandler((_wc, permission) => WEB_PERMISSIONS.has(permission));
+  }
+  return ses;
+}
+
+function webContextMenu(wc, p) {
+  const items = [];
+  for (const s of (p.dictionarySuggestions || []).slice(0, 5)) items.push({ label: s, click: () => wc.replaceMisspelling(s) });
+  if (items.length) items.push({ type: 'separator' });
+  if (p.linkURL) {
+    items.push({ label: 'Open link in your browser', click: () => openExternal(p.linkURL) }, { label: 'Copy link', click: () => clipboard.writeText(p.linkURL) }, { type: 'separator' });
+  }
+  if (p.isEditable) {
+    items.push({ role: 'cut', enabled: p.editFlags.canCut }, { role: 'copy', enabled: p.editFlags.canCopy }, { role: 'paste', enabled: p.editFlags.canPaste }, { role: 'selectAll' }, { type: 'separator' });
+  } else if (p.selectionText) items.push({ role: 'copy' }, { type: 'separator' });
+  const h = wc.navigationHistory;
+  items.push(
+    { label: 'Back', accelerator: 'Alt+Left', enabled: h.canGoBack(), click: () => h.goBack() },
+    { label: 'Forward', accelerator: 'Alt+Right', enabled: h.canGoForward(), click: () => h.goForward() },
+    { label: 'Reload', accelerator: 'F5', click: () => wc.reload() },
+    { type: 'separator' },
+    { label: 'Open this page in your browser', click: () => openExternal(wc.getURL()) },
+  );
+  Menu.buildFromTemplate(items).popup({ window: mainWindow });
+}
+
+function startWeb(account) {
+  const i = inst(account.id);
+  if (!mainWindow || closing) return { ok: false };
+  if (!webViews.has(account.id)) {
+    const partition = partitionOf(account.id);
+    webSessionFor(account.id);
+    const view = new WebContentsView({ webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: true } });
+    view.setBackgroundColor('#1a1917');
+    view.setVisible(false);
+    const wc = view.webContents;
+    wc.setWindowOpenHandler(({ url }) => {
+      if (url === 'about:blank' || AUTH_HOSTS.test(hostOf(url))) {
+        return { action: 'allow', overrideBrowserWindowOptions: { parent: mainWindow, width: 520, height: 720, autoHideMenuBar: true, webPreferences: { partition, sandbox: true } } };
+      }
+      // The same site's own links stay in the tab; anything else opens in the default browser.
+      if (sameSite(url, account.url)) wc.loadURL(url).catch(() => {});
+      else openExternal(url);
+      return { action: 'deny' };
+    });
+    wc.on('context-menu', (_e, p) => webContextMenu(wc, p));
+    wc.on('before-input-event', (e, input) => {
+      if (input.type !== 'keyDown') return;
+      const h = wc.navigationHistory;
+      if (input.alt && input.key === 'ArrowLeft') { if (h.canGoBack()) h.goBack(); e.preventDefault(); }
+      else if (input.alt && input.key === 'ArrowRight') { if (h.canGoForward()) h.goForward(); e.preventDefault(); }
+      else if (input.key === 'F5' || (input.control && !input.shift && !input.alt && input.key.toLowerCase() === 'r')) { wc.reload(); e.preventDefault(); }
+    });
+    // Clicking into a page makes its pane the active one, as clicking into a Claude window does.
+    wc.on('focus', () => {
+      if (state.ui.home || paneCount() < 2) return;
+      const p = visiblePanes().find((q) => state.ui.panes[q] === account.id);
+      if (p !== undefined && state.ui.focused !== p) { state.ui.focused = p; pushUi(); }
+    });
+    // A crashed page is reloaded.
+    wc.on('render-process-gone', (_e, d) => {
+      if (closing || d.reason === 'clean-exit') return;
+      setTimeout(() => { if (!wc.isDestroyed()) wc.reload(); }, 2000);
+    });
+    wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
+      if (isMainFrame && code !== -3) console.log(`${account.name}: could not load ${url} (${desc})`); // -3: aborted by a redirect
+    });
+    // Dev aid: KITSUN_WEB_SHOTS=<folder> saves a picture of each website tab a few seconds after it loads, and logs
+    // its title and address, so a run from source can be checked without looking at the screen.
+    if (process.env.KITSUN_WEB_SHOTS && !app.isPackaged) {
+      wc.on('did-finish-load', () => setTimeout(async () => {
+        if (wc.isDestroyed()) return;
+        console.log(`web ${account.id}: "${wc.getTitle()}" ${wc.getURL()}`);
+        const img = await wc.capturePage().catch(() => null);
+        if (img) fs.writeFileSync(path.join(process.env.KITSUN_WEB_SHOTS, `${account.id}.png`), img.toPNG());
+      }, 6000));
+    }
+    mainWindow.contentView.addChildView(view);
+    webViews.set(account.id, view);
+    wc.loadURL(account.url).catch(() => {}); // a redirect aborts the first load; a failed one shows Chromium's error page
+  }
+  i.status = 'docked';
+  i.error = null;
+  i.startedAt ??= Date.now();
+  layout();
+  pushStatus();
+  return { ok: true };
+}
+
+function stopWeb(id) {
+  const view = webViews.get(id);
+  webViews.delete(id);
+  if (view) {
+    try { if (mainWindow) mainWindow.contentView.removeChildView(view); } catch { /* window gone */ }
+    try { view.webContents.close(); } catch { /* already closed */ }
+  }
+  const i = inst(id);
+  i.status = 'stopped';
+  i.startedAt = null;
+}
+
+function placeView(view, r) {
+  view.setBounds({ x: Math.round(r.x), y: Math.round(r.y), width: Math.max(0, Math.round(r.width)), height: Math.max(0, Math.round(r.height)) });
+  view.setVisible(true);
+}
+
 // ---------- layout ----------
 
 let stats = null; // the home screen's statistics collector, created once the app is ready
@@ -447,6 +613,9 @@ function layout({ changedOnly = false } = {}) {
       const id = state.ui.panes[p];
       const i = id && instances.get(id);
       const r = rects[p];
+      // A website tab's view is placed in DIP, like the pane rects themselves.
+      const view = id && webViews.get(id);
+      if (view && r) { placeView(view, r); shown.add(id); continue; }
       // A copy we are stopping is hidden while it quits; its pane shows that instead.
       if (!i || !i.hwnd || !r || i.status === 'stopping') continue;
       const box = [r.x * sf, r.y * sf, r.width * sf, r.height * sf];
@@ -455,6 +624,7 @@ function layout({ changedOnly = false } = {}) {
       shown.add(id);
     }
   }
+  for (const [id, view] of webViews) if (!shown.has(id)) view.setVisible(false);
   for (const [id, i] of instances) {
     if (!i.hwnd || shown.has(id)) continue;
     // Hiding is asynchronous; enforce() must not mistake a window still on its way out for one asking for attention.
@@ -610,6 +780,8 @@ function showHome() {
 
 function focusActivePane() {
   if (!mainWindow || closing || overlayHidden || state.ui.home || !mainWindow.isFocused()) return;
+  const view = webViews.get(state.ui.panes[activePane()]);
+  if (view) { view.webContents.focus(); return; }
   const i = instances.get(state.ui.panes[activePane()]);
   if (i && i.hwnd && win32.isWindow(i.hwnd) && !win32.isHung(i.hwnd)) win32.focus(i.hwnd);
 }
@@ -650,6 +822,11 @@ async function startAccount(id, { auto = false } = {}) {
   const account = accountById(id);
   if (!account) return { ok: false };
   const i = inst(id);
+  if (account.kind === 'web') {
+    i.stoppedByUser = false;
+    i.exit = null;
+    return startWeb(account);
+  }
   if (i.status === 'external') return { ok: false, error: 'external' };
   if (i.status === 'stopping') return { ok: false, error: `${account.name} is still quitting. Try again in a moment.` };
   if (!auto) {
@@ -1129,6 +1306,14 @@ function killTree(pid) {
 async function stopAccount(id, { force = false } = {}) {
   const account = accountById(id);
   const i = inst(id);
+  if (account.kind === 'web') {
+    stopWeb(id);
+    i.stoppedByUser = true;
+    i.exit = { reason: 'stopped', at: Date.now(), reopening: false, gaveUp: false };
+    layout();
+    pushStatus();
+    return { ok: true };
+  }
   if (i.status === 'stopping') return { ok: false, error: `${account.name} is already stopping.` };
   if (!(await scanProcesses())) return { ok: false, error: 'Could not check whether its Claude is running. Try again.' };
   if (i.status === 'external') return { ok: false, error: `${account.name} is open in its own window. Quit it from that window.` };
@@ -1332,7 +1517,7 @@ function statusPayload() {
     // exit.reason: 'update' | 'crash' | 'user' | 'shutdown' | 'unknown' | 'stopped' (our Stop). reopening: an
     // automatic reopen is on its way; gaveUp: it closed too often to be reopened again.
     const exit = i.exit ? { reason: i.exit.reason, reopening: i.exit.reopening === true, gaveUp: i.exit.gaveUp === true } : null;
-    return [a.id, { status: i.status, error: i.error, running: Boolean(i.pid), frozen: i.frozen === true, exit }];
+    return [a.id, { status: i.status, error: i.error, running: Boolean(i.pid) || webViews.has(a.id), frozen: i.frozen === true, exit }];
   }));
 }
 
@@ -1505,7 +1690,7 @@ function createWindow({ hidden = false } = {}) {
     const waiting = [...instances.values()].some((i) => i.status === 'external');
     scanTimer = setTimeout(async () => {
       if (closing) return;
-      if (state.accounts.some((a) => inst(a.id).status !== 'docked')) await scanProcesses();
+      if (claudeTabs().some((a) => inst(a.id).status !== 'docked')) await scanProcesses();
       if (mainWindow && !closing) scheduleScan();
     }, waiting ? 3000 : 8000);
   };
@@ -1567,7 +1752,7 @@ function updateTrayMenu() {
       const i = inst(id);
       return {
         label: `${name.replace(/&/g, '&&')}…`,
-        enabled: Boolean(i.pid) && i.status !== 'external' && i.status !== 'stopping',
+        enabled: (Boolean(i.pid) || webViews.has(id)) && i.status !== 'external' && i.status !== 'stopping',
         click: thenShow(() => { if (mainWindow && accountById(id)) mainWindow.webContents.send('request-stop', id); }),
       };
     }) },
@@ -1748,7 +1933,7 @@ ipcMain.handle('search:query', async (event, text) => {
 
 // Only a session the index found, in the account it was found in, is ever opened (see openSession).
 ipcMain.handle('search:open', (event, id, sessionId) => {
-  if (!fromShell(event) || !accountById(id) || typeof sessionId !== 'string' || !SESSION_ID_RE.test(sessionId)) return { ok: false };
+  if (!fromShell(event) || !isClaudeTab(id) || typeof sessionId !== 'string' || !SESSION_ID_RE.test(sessionId)) return { ok: false };
   return openSession(id, sessionId);
 });
 
@@ -1759,7 +1944,7 @@ ipcMain.handle('handoff:start', async (event, input) => {
   if (Object.keys(input).sort().join() !== HANDOFF_KEYS.join()) return { ok: false };
   const { sessionId, fromAccountId, toAccountId } = input;
   if (typeof sessionId !== 'string' || !SESSION_ID_RE.test(sessionId) || typeof fromAccountId !== 'string' || typeof toAccountId !== 'string'
-    || fromAccountId === toAccountId || !accountById(fromAccountId) || !accountById(toAccountId)) return { ok: false };
+    || fromAccountId === toAccountId || !isClaudeTab(fromAccountId) || !isClaudeTab(toAccountId)) return { ok: false };
   try {
     return await startHandoff(fromAccountId, toAccountId, sessionId);
   } catch (err) {
@@ -1833,7 +2018,7 @@ ipcMain.handle('account:stop-frozen', (event, id) => (fromShell(event) && accoun
 // For a copy that is running on its own (without the dock flag): close it and start it again inside.
 ipcMain.handle('account:restart-here', async (event, id) => {
   const account = fromShell(event) && accountById(id);
-  if (!account || account.main) return { ok: false, error: 'Quit your main Claude app from its own menu; it then opens here by itself.' };
+  if (!account || account.kind !== 'claude' || account.main) return { ok: false, error: 'Quit your main Claude app from its own menu; it then opens here by itself.' };
   await scanProcesses();
   const i = inst(id);
   if (i.status !== 'external' || !i.pid) return { ok: true };
@@ -1848,9 +2033,32 @@ ipcMain.handle('account:restart-here', async (event, id) => {
 
 // chromeProfile: left out = keep, null = automatic, or a profile folder Chrome's Local State lists (anything else
 // rejects the whole save, so the page can never point the Chrome button at an arbitrary folder).
+// A new tab is kind 'claude' (the default) or 'web'. A website tab's address comes from its catalogue entry, or for "Any
+// website" from input.url (also how an existing one's address is changed); sanitizeAccount refuses anything but https
+// (and http to this PC). catalogId must name an entry of the same kind.
 ipcMain.handle('account:save', async (event, input) => {
   if (!fromShell(event) || !input || typeof input !== 'object') return null;
   const existing = accountById(input.id);
+  const kind = existing ? existing.kind : input.kind === 'web' ? 'web' : 'claude';
+  const entry = !existing && typeof input.catalogId === 'string' ? findEntry(input.catalogId) : null;
+  if (entry && entry.kind !== kind) return null;
+  if (kind === 'web') {
+    const url = existing ? (Object.hasOwn(input, 'url') ? input.url : existing.url) : (entry && entry.url) || input.url;
+    const next = sanitizeAccount({ id: input.id, kind, name: input.name, color: input.color, url, catalogId: existing ? existing.catalogId : entry && entry.id });
+    if (!next) return null;
+    if (existing) {
+      const moved = next.url !== existing.url;
+      Object.assign(existing, next);
+      const view = webViews.get(existing.id);
+      if (moved && view) view.webContents.loadURL(existing.url).catch(() => {});
+    } else {
+      if (!ACCOUNT_ID_RE.test(input.id) || accountById(input.id)) return null;
+      state.accounts.push(next);
+    }
+    saveState();
+    updateTrayMenu();
+    return state.accounts;
+  }
   let chromeProfile = existing ? existing.chromeProfile : null;
   if (Object.hasOwn(input, 'chromeProfile')) {
     const want = input.chromeProfile;
@@ -1862,7 +2070,7 @@ ipcMain.handle('account:save', async (event, input) => {
     Object.assign(existing, sanitizeAccount({ ...existing, name: input.name, color: input.color, shareCode: input.shareCode, chromeProfile }));
   } else {
     if (!ACCOUNT_ID_RE.test(input.id) || accountById(input.id)) return null;
-    state.accounts.push(sanitizeAccount({ id: input.id, name: input.name, color: input.color, main: false, shareCode: input.shareCode, chromeProfile }));
+    state.accounts.push(sanitizeAccount({ id: input.id, kind, name: input.name, color: input.color, main: false, shareCode: input.shareCode, chromeProfile, catalogId: entry && entry.id }));
   }
   saveState();
   updateTrayMenu();
@@ -1878,16 +2086,24 @@ ipcMain.handle('chrome:get', async (event) => {
 
 // The renderer names only the account; main picks the profile and the chrome.exe it starts.
 ipcMain.handle('chrome:open', (event, id) => {
-  if (!fromShell(event) || !accountById(id)) return { ok: false };
+  if (!fromShell(event) || !isClaudeTab(id)) return { ok: false };
   return openChrome(id);
 });
 
 // Removing an extra account deletes its Claude data folder (sign-in, settings, local sessions) and
 // its own Claude Code folder if it had one. The main Claude app's data is never touched.
+// Removing a website tab closes its page and deletes its partition (its sign-in, cookies and storage on this PC).
 ipcMain.handle('account:remove', async (event, id) => {
   if (!fromShell(event)) return { ok: false };
   const account = accountById(id);
   if (!account || account.main) return { ok: false, error: 'The main account cannot be removed.' };
+  if (account.kind === 'web') {
+    stopWeb(id);
+    try { await session.fromPartition(partitionOf(id)).clearStorageData(); } catch (err) { console.error('Could not clear', id, err); }
+    try { fs.rmSync(path.join(app.getPath('userData'), 'Partitions', `tab-${id}`), { recursive: true, force: true }); } catch { /* cleared above; the folder goes next start */ }
+    preparedSessions.delete(id);
+    return forgetTab(id);
+  }
   if (!(await scanProcesses())) return { ok: false, error: 'Could not check whether its Claude window is running. Try again.' };
   if (inst(id).pid) {
     return { ok: false, error: inst(id).status === 'external'
@@ -1913,6 +2129,10 @@ ipcMain.handle('account:remove', async (event, id) => {
     }
     try { fs.rmSync(doomed, { recursive: true, force: true }); } catch (err) { console.error('Could not finish deleting', doomed, err); }
   }
+  return forgetTab(id);
+});
+
+function forgetTab(id) {
   state.accounts = state.accounts.filter((a) => a.id !== id);
   cancelRestart(inst(id));
   instances.delete(id);
@@ -1923,12 +2143,33 @@ ipcMain.handle('account:remove', async (event, id) => {
   refreshChrome({ fresh: true });
   layout();
   pushUi();
+  pushStatus();
   return { ok: true, accounts: state.accounts, ui: state.ui };
+}
+
+// The AIs that can be added, and which are on this PC (lib/catalog.js). fresh: look again now.
+let catalog = null;
+ipcMain.handle('catalog:get', async (event, fresh) => {
+  if (!fromShell(event) || !catalog) return null;
+  try {
+    return await catalog.list({ fresh: fresh === true, kinds: TAB_KINDS });
+  } catch (err) {
+    console.error('Could not read the catalogue:', err);
+    return null;
+  }
+});
+
+// "Get it": the entry's own download page, never an address from the page.
+ipcMain.handle('catalog:get-it', (event, id) => {
+  const e = fromShell(event) && typeof id === 'string' ? findEntry(id) : null;
+  if (!e || !e.get) return false;
+  openExternal(e.get);
+  return true;
 });
 
 ipcMain.handle('account:sign-in-link', async (event, id, text) => {
   const account = fromShell(event) && accountById(id);
-  if (!account || account.main) return { ok: false };
+  if (!account || account.kind !== 'claude' || account.main) return { ok: false };
   const link = toClaudeLink(text);
   if (!link) return { ok: false, error: 'That is not a Claude sign-in link. It should start with https://claude.ai/magic-link, https://claude.ai/sso-callback or claude://' };
   const i = inst(id);
@@ -2078,6 +2319,7 @@ if (app.isPackaged && !process.argv.includes('--quit') && settingsRedirected() &
     attention = createAttention();
     search = createSearch();
     chrome = createChrome();
+    catalog = createCatalog({ claudeInstalled: () => claudeAlias() !== null });
     refreshChrome(); // fills the tray's Open Chrome submenu
     attentionTimer = setInterval(pollAttention, ATTENTION_EVERY);
     pollAttention();

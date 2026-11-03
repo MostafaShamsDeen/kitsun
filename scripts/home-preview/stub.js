@@ -147,7 +147,26 @@
 
   // ---------- the stubbed bridge ----------
 
-  const accounts = picked.map(({ id, name, color, main, shareCode }) => ({ id, name, color, main: Boolean(main), shareCode }));
+  const accounts = picked.map(({ id, name, color, main, shareCode }) => ({ id, kind: 'claude', name, color, main: Boolean(main), shareCode }));
+  if (params.get('web') === '1') accounts.push({ id: 'chatgpt', kind: 'web', name: 'ChatGPT', color: '#3fb68b', url: 'https://chatgpt.com/', catalogId: 'chatgpt-web', main: false });
+  // A few catalogue entries in lib/catalog.js's shape (the real list is longer); LM Studio and Codex aren't installed.
+  const CATALOG_SAMPLE = {
+    groups: ['Claude', 'Chat', 'Research', 'Desktop apps', 'Local models', 'Terminal', 'Your own'],
+    entries: [
+      ['claude', 'claude', 'Claude', 'Claude', 'Anthropic', '#d97757', 'The Claude desktop app: chat, Code, Cowork. One tab per account.', null, true],
+      ['chatgpt-web', 'web', 'Chat', 'ChatGPT', 'OpenAI', '#10a37f', 'GPT models, images, voice and projects.', 'https://chatgpt.com/', null],
+      ['gemini-web', 'web', 'Chat', 'Gemini', 'Google', '#4f8df7', 'Google\'s assistant, linked to your Google apps.', 'https://gemini.google.com/app', null],
+      ['grok-web', 'web', 'Chat', 'Grok', 'xAI', '#9b968c', 'xAI\'s assistant with live X posts.', 'https://grok.com/', null],
+      ['perplexity-web', 'web', 'Research', 'Perplexity', 'Perplexity', '#20b8cd', 'Answers with sources from the web.', 'https://www.perplexity.ai/', null],
+      ['notebooklm-web', 'web', 'Research', 'NotebookLM', 'Google', '#9b72cb', 'Chat with your documents; audio overviews.', 'https://notebooklm.google.com/', null],
+      ['vscode-app', 'app', 'Desktop apps', 'VS Code', 'Microsoft', '#3fb6e8', 'Editor with Copilot and AI extensions.', null, true],
+      ['lmstudio-app', 'app', 'Local models', 'LM Studio', 'LM Studio', '#6c5ce7', 'Download and chat with models on your own PC.', null, false],
+      ['codex-cli', 'terminal', 'Terminal', 'Codex CLI', 'OpenAI', '#10a37f', 'OpenAI\'s coding agent in a terminal.', null, false],
+      ['custom-web', 'web', 'Your own', 'Any website', '', '#9b968c', 'Type the address of any AI site.', null, null],
+    ].map(([id, kind, group, name, by, color, blurb, url, installed]) => ({
+      id, kind, group, name, by, color, blurb, url, installed, custom: id.startsWith('custom-'), canGet: installed === false || id === 'claude', soon: !['claude', 'web'].includes(kind),
+    })),
+  };
   // Same shape as main.js statusPayload(): exit says why a copy closed, frozen marks one not responding.
   const st = (s, extra = {}) => ({ status: s, error: null, running: s === 'docked' || s === 'stopping', frozen: false, exit: null, ...extra });
   const status = Object.fromEntries(picked.map((a) => [a.id, st(a.live.status)]));
@@ -495,6 +514,8 @@
       return later(200, { ok: true, opened: true });
     },
     getChrome: () => later(40, chromeSample()),
+    getCatalog: () => later(300, copy(CATALOG_SAMPLE)),
+    getIt: () => later(20, true),
     onChrome: (fn) => listeners.chrome.push(fn),
     // Like main's openChrome: nothing is started here.
     openChrome: (id) => {
@@ -552,6 +573,13 @@
     }, 400);
   }
   if (params.get('dialog') === 'stop') setTimeout(() => listeners.requestStop.forEach((fn) => fn('personal')), 400);
+  // &dialog=picker opens Add an AI (&pick=<text> types into its search box); &web=1 adds an open ChatGPT website tab.
+  if (params.get('dialog') === 'picker') {
+    setTimeout(() => {
+      document.getElementById('add-tab').click();
+      if (params.get('pick')) setTimeout(() => { const i = document.getElementById('pk-search'); i.value = params.get('pick'); i.dispatchEvent(new Event('input')); }, 200);
+    }, 400);
+  }
 
   // &notice=update|frozen|reopened|needs|limit|reset shows the toast main sends for that event (needs and limit have a button).
   const NOTICES = {

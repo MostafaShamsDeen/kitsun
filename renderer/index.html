@@ -9,8 +9,8 @@
 <body>
   <header class="titlebar">
     <button id="home" class="tb-btn brand-mark" type="button" data-hint="Home · Ctrl+Alt+0" aria-label="Home"><span class="bm" aria-hidden="true"><i></i><i></i></span></button>
-    <nav id="tabs" class="tabs" role="tablist" aria-label="Claude accounts"></nav>
-    <button id="add-tab" class="tb-btn" type="button" data-hint="Add an account" aria-label="Add an account">+</button>
+    <nav id="tabs" class="tabs" role="tablist" aria-label="Your AIs"></nav>
+    <button id="add-tab" class="tb-btn" type="button" data-hint="Add an AI" aria-label="Add an AI" aria-haspopup="dialog">+</button>
     <span class="spacer"></span>
     <span id="hint" class="hint" aria-hidden="true"></span>
     <div id="alerts" class="alerts"></div>
@@ -20,7 +20,7 @@
     <button id="split" class="tb-btn" type="button" data-hint="Layout" aria-label="Layout" aria-haspopup="menu" aria-expanded="false">
       <svg viewBox="0 0 20 14" aria-hidden="true"><rect x="1" y="1" width="8" height="12" rx="1.5"/><rect x="11" y="1" width="8" height="12" rx="1.5"/></svg>
     </button>
-    <button id="manage" class="tb-btn" type="button" data-hint="Manage accounts" aria-label="Manage accounts">
+    <button id="manage" class="tb-btn" type="button" data-hint="Manage tabs" aria-label="Manage tabs">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
     </button>
     <button id="settings" class="tb-btn" type="button" data-hint="Settings" aria-label="Settings">
@@ -31,11 +31,11 @@
   <main id="panes" class="panes"></main>
 
   <dialog id="manage-dialog" class="dialog">
-    <h2>Accounts</h2>
-    <p class="muted">Each account runs as its own copy of the Claude app, with its own sign-in, chats and usage.</p>
+    <h2>Your tabs</h2>
+    <p class="muted">Each Claude tab runs its own copy of the Claude app; each website tab has its own sign-in, separate from your browser and every other tab.</p>
     <ul id="manage-list" class="manage-list"></ul>
     <div class="dialog-actions">
-      <div class="left"><button type="button" id="manage-add" class="btn">+ Add account</button></div>
+      <div class="left"><button type="button" id="manage-add" class="btn">+ Add an AI</button></div>
       <div class="right"><button type="button" id="manage-close" class="btn primary">Done</button></div>
     </div>
   </dialog>
@@ -57,11 +57,16 @@
         <span>Name</span>
         <input id="f-name" maxlength="40" required placeholder="e.g. Personal, Work, Client X">
       </label>
+      <label class="field" id="f-url-box" hidden>
+        <span>Address</span>
+        <input id="f-url" type="url" maxlength="2000" placeholder="https://…" spellcheck="false" autocomplete="off">
+        <small class="muted">It gets its own sign-in, separate from your browser and from every other tab.</small>
+      </label>
       <div class="field">
         <span>Colour</span>
         <div id="f-colors" class="swatches"></div>
       </div>
-      <label class="check">
+      <label class="check" id="f-share-row">
         <input type="checkbox" id="f-share">
         <span>
           Share Claude Code settings, memory and local history with the main account
@@ -85,7 +90,7 @@
       <div class="dialog-actions">
         <div class="left">
           <button type="button" id="f-stop" class="btn">Stop</button>
-          <button type="button" id="f-delete" class="btn danger">Remove account</button>
+          <button type="button" id="f-delete" class="btn danger">Remove</button>
         </div>
         <div class="right">
           <button type="button" id="f-cancel" class="btn ghost">Cancel</button>
@@ -127,6 +132,22 @@
     </div>
     <div id="sw-list" class="sw-list" role="listbox" aria-label="Results"></div>
     <div class="sw-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span class="sw-foot-handoff"><kbd>Ctrl</kbd><kbd>Enter</kbd> continue in another account</span><span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>K</kbd> from any tab</span></div>
+  </dialog>
+
+  <dialog id="picker" class="dialog picker" aria-labelledby="pk-title">
+    <div class="pk-head">
+      <h2 id="pk-title">Add an AI</h2>
+      <div class="pk-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>
+        <input id="pk-search" type="search" placeholder="Search ChatGPT, Gemini, LM Studio, Codex…" spellcheck="false" autocomplete="off" maxlength="60">
+      </div>
+    </div>
+    <div id="pk-groups" class="pk-groups" role="tablist" aria-label="Kinds"></div>
+    <div id="pk-list" class="pk-list"></div>
+    <div class="dialog-actions">
+      <div class="left"><small class="muted" id="pk-note"></small></div>
+      <div class="right"><button type="button" id="pk-close" class="btn ghost">Close</button></div>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

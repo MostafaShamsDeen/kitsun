@@ -425,7 +425,7 @@ const Home = (() => {
       tiles,
     ]);
 
-    refs.cards = el('div', { class: 'cards' }, [el('p', { class: 'muted loading', text: 'Loading your accounts…' })]);
+    refs.cards = el('div', { class: 'cards' }, [el('p', { class: 'muted loading', text: 'Loading your tabs…' })]);
     refs.scan = el('span', { class: 'scan', hidden: true }, [el('i'), el('span', { text: 'Counting messages in your chat history…' })]);
     refs.tableBtn = el('button', {
       class: 'btn ghost small', type: 'button', 'aria-pressed': 'false', text: 'Show as tables',
@@ -606,6 +606,16 @@ const Home = (() => {
     const [cls, text] = PILLS[v.state] || PILLS.stopped;
     r.pill.className = `pill ${cls}`;
     r.pillText.textContent = text;
+    // A website tab: open or closed, and where it points.
+    if (v.account.kind === 'web') {
+      const open = v.state === 'docked';
+      r.pillText.textContent = open ? 'Open' : 'Closed';
+      r.meta.textContent = open ? hostOf(v.account.url) : `Closed · ${hostOf(v.account.url)} · you stay signed in`;
+      r.action.textContent = open ? 'Show' : 'Open';
+      r.action.setAttribute('aria-label', `${open ? 'Show' : 'Open'} ${v.name}`);
+      r.action.dataset.mode = open ? 'open' : 'start';
+      return;
+    }
     const up = (v.state === 'docked' || v.state === 'external') && v.live.startedAt ? uptime(v.live.startedAt) : null;
     const mem = (v.state === 'docked' || v.state === 'external') && v.live.memoryMB != null ? memory(v.live.memoryMB) : null;
     const code = v.live.codeSessionsOpen ? `${v.live.codeSessionsOpen} Code session${v.live.codeSessionsOpen === 1 ? '' : 's'} open` : null;
@@ -628,6 +638,7 @@ const Home = (() => {
 
   // "Chrome: Studio Labs" opens that Chrome profile; with none linked, the button opens the account's settings to pick one.
   function fillChrome(r, v) {
+    if (!r.chrome) return;
     r.chrome.hidden = !chromeInfo.installed;
     const link = (chromeInfo.accounts[v.id] || {}).link;
     r.chromeText.textContent = `Chrome: ${link ? link.name : 'not linked'}`;
@@ -642,7 +653,42 @@ const Home = (() => {
     return el('div', { class: 'mini' }, [el('b', { text: value }), el('span', { text: label })]);
   }
 
+  // A website tab's card: what it is and whether it is open. Usage and sessions are Claude's own, so there are none.
+  function webCard(v, idx, animate) {
+    const r = {};
+    r.pillText = el('span');
+    r.pill = el('span', { class: 'pill' }, [el('i'), r.pillText]);
+    r.meta = el('div', { class: 'acard-meta' });
+    r.action = el('button', {
+      class: 'btn primary', type: 'button',
+      onclick: async (e) => {
+        const b = e.currentTarget;
+        if (b.dataset.mode === 'start') { b.disabled = true; await api.startAccount(v.id); }
+        show(v.id);
+      },
+    });
+    const node = el('article', {
+      class: `acard web${animate ? ' rise' : ''}`, style: `--acc:${v.color};${animate ? `animation-delay:${idx * 80}ms` : ''}`,
+      oncontextmenu: (e) => { e.preventDefault(); const a = byId(v.id); if (a) openAccountDialog(a); },
+    }, [
+      el('header', { class: 'acard-head' }, [
+        el('span', { class: 'dot' }),
+        el('h3', { text: v.name }),
+        el('span', { class: 'tag', text: 'Website' }),
+        el('span', { class: 'spacer' }),
+        r.pill,
+      ]),
+      r.meta,
+      el('p', { class: 'recent-empty muted', text: 'Its own sign-in, separate from your browser and every other tab.' }),
+      el('footer', { class: 'acard-foot' }, [el('span'), el('span', { class: 'acard-btns' }, [r.action])]),
+    ]);
+    fillLive(r, v);
+    cardRefs.set(v.id, r);
+    return node;
+  }
+
   function card(v, idx, animate) {
+    if (v.account.kind === 'web') return webCard(v, idx, animate);
     const r = {};
     r.pillText = el('span');
     r.pill = el('span', { class: 'pill' }, [el('i'), r.pillText]);
@@ -716,7 +762,7 @@ const Home = (() => {
           el('span', { class: 't', text: x.title || 'Untitled session' }),
           el('span', { class: 'ago', text: ago(x.lastActivityAt) }),
           // Carry the session on in another account (app.js; main checks the session id against its own index).
-          x.sessionId && accounts.length > 1 ? el('button', {
+          x.sessionId && claudeAccounts().length > 1 ? el('button', {
             class: 'handoff-btn', type: 'button',
             'data-hint': 'Continue in another account', 'aria-label': `Continue “${x.title || 'Untitled session'}” in another account`,
             onclick: (e) => openHandoffMenu({ accountId: v.id, sessionId: x.sessionId, title: x.title || 'Untitled session' }, e.currentTarget),
@@ -737,7 +783,7 @@ const Home = (() => {
   function renderCards(list, animate) {
     cardRefs = new Map();
     if (!list.length) {
-      refs.cards.replaceChildren(el('p', { class: 'muted loading', text: 'No accounts yet. Click + to add one.' }));
+      refs.cards.replaceChildren(el('p', { class: 'muted loading', text: 'Nothing added yet. Click + to add an AI.' }));
       return;
     }
     refs.cards.replaceChildren(...list.map((v, i) => card(v, i, animate)));

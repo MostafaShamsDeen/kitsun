@@ -306,6 +306,7 @@ input:focus, select:focus { outline: 2px solid var(--focus-ring); outline-offset
 .check { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 14px; cursor: pointer; }
 .check input { margin-top: 3px; }
 .check small { display: block; font-size: 11px; margin-top: 2px; }
+.check[hidden] { display: none; }
 
 .link-box { border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; margin-bottom: 12px; }
 .link-box summary { cursor: pointer; padding: 8px 0; font-size: 12px; }
@@ -895,3 +896,72 @@ kbd {
 @media (max-width: 760px) {
   .sw-handoff span, .sw-foot .sw-foot-handoff { display: none; }
 }
+
+/* ---------- add an AI (the picker) ---------- */
+.picker {
+  width: min(880px, calc(100vw - 32px));
+  height: min(720px, calc(100vh - 80px));
+  padding: 0;
+  overflow: hidden;
+  user-select: none;
+  box-shadow: 0 24px 60px rgb(0 0 0 / .5);
+}
+.picker[open] { display: flex; flex-direction: column; }
+.picker .dialog-actions { flex: none; margin: 0; padding: 12px 20px; border-top: 1px solid var(--line); align-items: center; }
+.pk-head { flex: none; display: flex; align-items: center; gap: 16px; padding: 16px 20px 10px; }
+.pk-head h2 { margin: 0; white-space: nowrap; }
+.pk-search {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2);
+}
+.pk-search:focus-within { border-color: var(--divider-line); }
+.pk-search svg { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; }
+.pk-search input { flex: 1; min-width: 0; border: 0; background: transparent; font-size: 13.5px; }
+.pk-search input:focus { outline: none; }
+.pk-search input::placeholder { color: var(--muted); }
+.pk-groups { flex: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0 20px 10px; border-bottom: 1px solid var(--line); }
+.pk-chip {
+  height: 26px; padding: 0 11px;
+  border: 1px solid var(--line); border-radius: 999px; background: transparent;
+  font-size: 12px; color: var(--muted); cursor: pointer;
+}
+.pk-chip:hover { color: var(--text); }
+.pk-chip[aria-selected="true"] { background: var(--panel-2); border-color: var(--divider-line); color: var(--text); }
+.pk-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 20px 16px; scrollbar-width: thin; }
+.pk-empty { margin: 24px 0; text-align: center; }
+.pk-section h3 { margin: 14px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.pk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; }
+.pk-card {
+  display: flex; flex-direction: column;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
+  transition: border-color .12s;
+}
+.pk-card:hover, .pk-card:focus-within { border-color: color-mix(in srgb, var(--acc) 55%, var(--line)); }
+.pk-card.soon { opacity: .72; }
+.pk-main {
+  flex: 1; display: flex; align-items: flex-start; gap: 11px;
+  padding: 11px 12px 6px;
+  border: 0; background: transparent; text-align: left; color: inherit; cursor: pointer;
+  border-radius: 10px 10px 0 0;
+}
+.pk-main:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.pk-logo {
+  width: 34px; height: 34px; flex: none; display: grid; place-items: center;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--acc) 22%, var(--panel));
+  color: var(--acc); font-weight: 700; font-size: 13px;
+}
+.pk-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pk-name { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; }
+.pk-added { padding: 0 6px; border-radius: 999px; background: var(--sw-active); font-size: 10.5px; font-weight: 600; color: var(--muted); }
+.pk-by { font-size: 11.5px; color: var(--muted); }
+.pk-blurb { margin-top: 3px; font-size: 12px; line-height: 1.35; color: var(--text); opacity: .82; }
+.pk-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; padding: 0 10px 8px 57px; }
+.pk-foot .btn.small { height: 24px; padding: 0 10px; }
+.pk-state { font-size: 11px; color: var(--muted); }
+.pk-state.ok { color: var(--ok); }
+.pk-state.soon { color: var(--warn); }
+.pk-state.missing { color: var(--muted); }
+.pk-state.web { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acard.web { align-self: start; }

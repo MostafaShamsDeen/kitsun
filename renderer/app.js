@@ -1,5 +1,5 @@
-// Kitsun window: a tab per account; the real Claude app windows are docked over the pane bodies
-// by the main process, which needs to know where those bodies are.
+// Kitsun window: a tab per AI. Claude tabs are real Claude app windows and website tabs are pages, both laid over the
+// pane bodies by the main process, which needs to know where those bodies are.
 
 const api = window.kitsun;
 
@@ -36,6 +36,10 @@ let chromeInfo = { installed: false, profiles: [], accounts: {} };
 const restarting = new Set(); // accounts whose "Restart it here" is in progress
 
 const byId = (id) => accounts.find((a) => a.id === id);
+// Claude-only features (usage, needs-you, sessions, handoff, Chrome profiles) only ever look at Claude tabs.
+const claudeAccounts = () => accounts.filter((a) => a.kind === 'claude');
+const KIND_NAMES = { claude: 'Claude app', web: 'Website', app: 'Desktop app', terminal: 'Terminal' };
+const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 const PANES_IN = { single: 1, split: 2, triple: 3 };
 const currentLayout = () => (PANES_IN[ui.layout] ? ui.layout : ui.split ? 'split' : 'single');
 const paneCount = () => PANES_IN[currentLayout()];
@@ -79,7 +83,7 @@ function renderTabs() {
   const choice = LAYOUT_CHOICES.find((c) => c.name === currentLayout());
   split.replaceChildren(layoutIcon(choice.name));
   split.classList.toggle('on', paneCount() > 1);
-  split.dataset.hint = accounts.length < 2 ? 'Add a second account to show two side by side' : `Layout: ${choice.label}`;
+  split.dataset.hint = accounts.length < 2 ? 'Add a second tab to show two side by side' : `Layout: ${choice.label}`;
   split.setAttribute('aria-label', `Layout: ${choice.label}`);
   split.disabled = accounts.length < 2;
   // Home is a place, not an on/off switch.
@@ -114,9 +118,9 @@ $('#home').addEventListener('click', async () => {
 
 // need: accounts it takes. cmd: how the quick switcher words it.
 const LAYOUT_CHOICES = [
-  { name: 'single', label: 'Single', sub: 'One account at a time', cmd: 'Show one account at a time', need: 1 },
-  { name: 'split', label: 'Side by side', sub: 'Two accounts', cmd: 'Show two accounts side by side', need: 2 },
-  { name: 'triple', label: 'Three columns', sub: 'Three accounts', cmd: 'Show three accounts in columns', need: 3 },
+  { name: 'single', label: 'Single', sub: 'One tab at a time', cmd: 'Show one tab at a time', need: 1 },
+  { name: 'split', label: 'Side by side', sub: 'Two tabs', cmd: 'Show two tabs side by side', need: 2 },
+  { name: 'triple', label: 'Three columns', sub: 'Three tabs', cmd: 'Show three tabs in columns', need: 3 },
 ];
 
 // The layout as a row of window shapes, drawn like the title bar's other icons.
@@ -143,13 +147,13 @@ function renderLayoutMenu() {
     // aria-disabled rather than disabled, so it can still be hovered for its hint and reached with the arrow keys.
     return el('button', {
       class: 'menu-item', type: 'button', role: 'menuitemradio', 'aria-checked': String(on), 'aria-disabled': ok ? null : 'true',
-      'data-hint': ok ? null : `${c.label} needs ${c.need} accounts · add one with +`,
+      'data-hint': ok ? null : `${c.label} needs ${c.need} tabs · add one with +`,
       onclick: () => { if (ok) chooseLayout(c.name); },
     }, [
       el('span', { class: 'menu-icon' }, [layoutIcon(c.name)]),
       el('span', { class: 'menu-text' }, [
         el('span', { class: 'menu-label', text: c.label }),
-        el('small', { class: 'menu-sub', text: ok ? c.sub : `Needs ${c.need} accounts` }),
+        el('small', { class: 'menu-sub', text: ok ? c.sub : `Needs ${c.need} tabs` }),
       ]),
       el('span', { class: 'menu-check', 'aria-hidden': 'true' }),
     ]);
@@ -273,8 +277,19 @@ async function restartFrozen(account) {
   if (r && !r.ok && !r.cancelled && r.error) toast(r.error);
 }
 
+function webNotice(account, s) {
+  if (s.status === 'docked') return null;
+  return el('div', { class: 'notice' }, [
+    el('h2', { text: s.exit && s.exit.reason === 'stopped' ? `You closed ${account.name}` : `${account.name} isn't open` }),
+    el('p', { text: `Open it again to load ${hostOf(account.url) || 'the page'}. You stay signed in.` }),
+    s.error ? el('p', { text: s.error }) : null,
+    el('button', { class: 'btn primary', type: 'button', text: `Open ${account.name}`, onclick: () => api.startAccount(account.id) }),
+  ]);
+}
+
 function notice(account) {
   const s = status[account.id] || { status: 'stopped' };
+  if (account.kind === 'web') return webNotice(account, s);
   if (s.frozen) return frozenNotice(account);
   if (s.status === 'docked') return null;
   if (s.status === 'starting') {
@@ -359,7 +374,7 @@ function renderPanes() {
         el('span', { class: 'name', text: account.name }),
         el('span', { text: multi && p === ui.focused ? '· tabs open here' : '' }),
       ] : [el('span', { text: 'Empty' })]),
-      el('div', { class: 'pane-body', 'data-pane': p }, account ? notice(account) : el('div', { class: 'notice' }, [el('p', { text: 'Pick an account tab to show it here.' })])),
+      el('div', { class: 'pane-body', 'data-pane': p }, account ? notice(account) : el('div', { class: 'notice' }, [el('p', { text: 'Pick a tab to show it here.' })])),
     ]));
   }
   box.replaceChildren(...nodes);
@@ -574,18 +589,21 @@ const manageDialog = $('#manage-dialog');
 function renderManageList() {
   $('#manage-list').replaceChildren(...accounts.map((a) => el('li', { style: `--acc:${a.color}` }, [
     el('span', { class: 'name', text: a.name }),
-    el('span', { class: 'tag', text: a.main ? 'Your normal Claude app' : 'Separate copy' }),
+    el('span', { class: 'tag', text: a.kind === 'web' ? `Website · ${hostOf(a.url)}` : a.main ? 'Your normal Claude app' : 'Separate Claude copy' }),
     el('button', { class: 'btn ghost', type: 'button', text: 'Edit', onclick: () => openAccountDialog(a) }),
   ])));
 }
 
 $('#manage').addEventListener('click', () => { renderManageList(); openModal(manageDialog); });
 $('#manage-close').addEventListener('click', () => manageDialog.close());
-$('#manage-add').addEventListener('click', () => openAccountDialog(null));
-$('#add-tab').addEventListener('click', () => openAccountDialog(null));
+$('#manage-add').addEventListener('click', () => { if (manageDialog.open) manageDialog.close(); openPicker(); });
+$('#add-tab').addEventListener('click', () => openPicker());
 
 const dialog = $('#account-dialog');
 let editing = null;
+// The kind of tab the dialog adds or edits, and the catalogue entry a new one comes from (null: a plain Claude account).
+let dialogKind = 'claude';
+let dialogEntry = null;
 let chosenColor = COLORS[0];
 
 function renderSwatches() {
@@ -595,12 +613,26 @@ function renderSwatches() {
   })));
 }
 
-function openAccountDialog(account) {
+// account: the tab to edit, or null to add one. kind / entry (for a new one): what the picker chose.
+function openAccountDialog(account, { kind = 'claude', entry = null } = {}) {
   editing = account;
-  $('#account-dialog-title').textContent = account ? `Edit ${account.name}` : 'Add account';
-  $('#f-name').value = account ? account.name : '';
+  dialogKind = account ? account.kind || 'claude' : kind;
+  dialogEntry = account ? null : entry;
+  const web = dialogKind === 'web';
+  const named = entry && !entry.custom ? entry.name : '';
+  $('#account-dialog-title').textContent = account ? `Edit ${account.name}`
+    : web ? (named ? `Add ${named}` : 'Add a website') : 'Add a Claude account';
+  // A second ChatGPT tab is "ChatGPT 2", and so on.
+  let suggested = named;
+  for (let n = 2; suggested && accounts.some((a) => a.name === suggested); n++) suggested = `${named} ${n}`;
+  $('#f-name').value = account ? account.name : web ? suggested : '';
+  $('#f-name').placeholder = web ? 'e.g. ChatGPT, Gemini (work)' : 'e.g. Personal, Work, Client X';
+  $('#f-url-box').hidden = !web;
+  $('#f-url').required = web;
+  $('#f-url').value = account ? account.url || '' : entry && entry.url ? entry.url : '';
+  $('#f-share-row').hidden = web;
   const used = new Set(accounts.map((a) => a.color));
-  chosenColor = account ? account.color : (COLORS.find((c) => !used.has(c)) || COLORS[0]);
+  chosenColor = account ? account.color : entry && entry.color && !used.has(entry.color) && COLORS.includes(entry.color) ? entry.color : (COLORS.find((c) => !used.has(c)) || COLORS[0]);
   renderSwatches();
   const share = $('#f-share');
   share.checked = account ? account.shareCode : true;
@@ -608,19 +640,20 @@ function openAccountDialog(account) {
   $('#f-share-hint').textContent = account && account.main
     ? 'This is the main account; it always uses your usual Claude Code folder.'
     : 'On: its Code tab sees your usual Claude Code settings, memory and past sessions. Off: a completely separate Claude Code setup, which also hides the sessions it already has. Usage is separate either way.';
-  $('#f-link-box').hidden = !account || account.main;
+  $('#f-link-box').hidden = !account || account.main || web;
   $('#f-link-box').open = false;
   $('#f-link').value = '';
   $('#f-delete').hidden = !account || account.main;
+  $('#f-delete').textContent = web ? 'Remove tab' : 'Remove account';
   const s = account ? status[account.id] || {} : {};
   $('#f-stop').hidden = !account || !s.running || s.status === 'external' || s.status === 'stopping';
   $('#f-error').textContent = '';
   chromeTouched = false;
   renderChromeChoice();
   if (!openModal(dialog)) return;
-  $('#f-name').focus();
+  if (web && !$('#f-url').value) $('#f-url').focus(); else $('#f-name').focus();
   // The list on hand may be half a minute old (a new profile, a fresh sign-in); refresh it unless already changed.
-  if (api.getChrome) {
+  if (api.getChrome && !web) {
     api.getChrome().then((c) => {
       if (!c || !dialog.open || editing !== account) return;
       chromeInfo = c;
@@ -637,7 +670,7 @@ let chromeTouched = false; // the person changed the Chrome select in the open d
 function renderChromeChoice() {
   const box = $('#f-chrome-box');
   const select = $('#f-chrome');
-  box.hidden = !chromeInfo.installed || !chromeInfo.profiles.length;
+  box.hidden = dialogKind !== 'claude' || !chromeInfo.installed || !chromeInfo.profiles.length;
   if (box.hidden) return;
   const info = (editing && chromeInfo.accounts[editing.id]) || {};
   const auto = info.auto;
@@ -689,11 +722,22 @@ $('#account-form').addEventListener('submit', async (e) => {
   if (!name) return;
   const isNew = !editing;
   const id = editing ? editing.id : newAccountId(name);
-  const input = { id, name, color: chosenColor, shareCode: $('#f-share').checked };
+  const web = dialogKind === 'web';
+  const input = { id, name, color: chosenColor };
+  if (web) {
+    // "chatgpt.com" is taken as https://chatgpt.com.
+    let url = $('#f-url').value.trim();
+    if (url && !/^[a-z][a-z0-9+.-]*:/i.test(url)) url = `https://${url}`;
+    input.url = url;
+  } else input.shareCode = $('#f-share').checked;
+  if (isNew) {
+    input.kind = dialogKind;
+    if (dialogEntry) input.catalogId = dialogEntry.id;
+  }
   // Only sent when the choice is on screen, so a dialog opened without Chrome's list never clears it.
   if (!$('#f-chrome-box').hidden) input.chromeProfile = $('#f-chrome').value || null;
   const saved = await api.saveAccount(input);
-  if (!saved) { $('#f-error').textContent = 'Couldn\'t save the account.'; return; }
+  if (!saved) { $('#f-error').textContent = web ? 'That address can\'t be used. It has to start with https://.' : 'Couldn\'t save the account.'; return; }
   accounts = saved;
   dialog.close();
   if (manageDialog.open) renderManageList();
@@ -701,7 +745,7 @@ $('#account-form').addEventListener('submit', async (e) => {
   if (isNew) {
     if (manageDialog.open) manageDialog.close();
     await show(id);
-    toast(`Starting ${name}… Sign in when its Claude window appears.`);
+    toast(web ? `Opening ${name}… Sign in inside the tab; it's separate from your browser.` : `Starting ${name}… Sign in when its Claude window appears.`);
   }
 });
 
@@ -718,8 +762,9 @@ $('#f-link-go').addEventListener('click', async () => {
 $('#f-delete').addEventListener('click', async () => {
   const account = editing;
   if (!account) return;
-  const ok = await confirmDialog(`Remove ${account.name}?`,
-    `This deletes ${account.name}'s Claude copy from this PC: its sign-in, settings and local sessions. Chats saved to the account stay on claude.ai, and your project folders are not touched.`, 'Remove');
+  const ok = await confirmDialog(`Remove ${account.name}?`, account.kind === 'web'
+    ? `This closes ${account.name} and deletes its sign-in, cookies and saved data on this PC. Your account on ${hostOf(account.url) || 'the site'} isn't affected.`
+    : `This deletes ${account.name}'s Claude copy from this PC: its sign-in, settings and local sessions. Chats saved to the account stay on claude.ai, and your project folders are not touched.`, 'Remove');
   if (!ok) return;
   const r = await api.removeAccount(account.id).catch((err) => ({ ok: false, error: err.message }));
   if (!r.ok) { $('#f-error').textContent = r.error || 'Couldn\'t remove the account.'; return; }
@@ -752,6 +797,14 @@ async function stopAccount(account) {
     const f = await api.stopFrozen(account.id).catch((err) => ({ ok: false, error: err.message }));
     if (f && f.cancelled) return;
     toast(f && f.ok ? `${account.name} stopped.` : (f && f.error) || `Couldn't stop ${account.name}.`);
+    return;
+  }
+  if (account.kind === 'web') {
+    const close = await confirmDialog(`Close ${account.name}?`, 'This closes the page to free its memory. You stay signed in, and can open it again from its tab.', 'Close', { primary: true });
+    if (!close) return;
+    if (dialog.open && editing && editing.id === account.id) dialog.close();
+    const w = await api.stopAccount(account.id, false).catch((err) => ({ ok: false, error: err.message }));
+    toast(w && w.ok ? `${account.name} closed.` : (w && w.error) || `Couldn't close ${account.name}.`);
     return;
   }
   const what = account.main ? 'This quits your main Claude app.' : `This quits ${account.name}'s Claude.`;
@@ -909,7 +962,7 @@ function marked(text, tokens) {
 function accountState(a) {
   const s = status[a.id] || {};
   if (s.frozen) return 'Not responding';
-  if (s.status === 'docked') return 'Running';
+  if (s.status === 'docked') return a.kind === 'web' ? 'Open' : 'Running';
   if (s.status === 'starting') return 'Starting…';
   if (s.status === 'stopping') return 'Stopping…';
   if (s.status === 'external') return 'Open in its own window';
@@ -918,15 +971,16 @@ function accountState(a) {
 
 // Places and actions. words: extra terms each one is also found by.
 function switcherCommands() {
-  const cmds = [{ key: 'home', group: 'Go to', icon: 'home', label: 'Home', sub: 'Every account at a glance', kbd: 'Ctrl+Alt+0', words: 'dashboard stats usage', run: async () => { ui = await api.goHome(); render(); } }];
+  const cmds = [{ key: 'home', group: 'Go to', icon: 'home', label: 'Home', sub: 'Every tab at a glance', kbd: 'Ctrl+Alt+0', words: 'dashboard stats usage', run: async () => { ui = await api.goHome(); render(); } }];
   accounts.forEach((a, idx) => {
     const att = sessions[a.id] || {};
     const extra = att.waiting ? ` · ${att.waiting} need${att.waiting === 1 ? 's' : ''} you` : '';
-    cmds.push({ key: `go:${a.id}`, group: 'Go to', dot: a.color, label: a.name, sub: `${accountState(a)}${extra}`, kbd: idx < 9 ? `Ctrl+Alt+${idx + 1}` : null, words: 'account tab switch', run: () => show(a.id) });
+    cmds.push({ key: `go:${a.id}`, group: 'Go to', dot: a.color, label: a.name, sub: `${a.kind === 'web' ? `${hostOf(a.url)} · ` : ''}${accountState(a)}${extra}`, kbd: idx < 9 ? `Ctrl+Alt+${idx + 1}` : null, words: 'account tab switch', run: () => show(a.id) });
   });
   cmds.push(
     { key: 'settings', group: 'Actions', icon: 'settings', label: 'Settings', words: 'preferences options tray notifications startup', opensDialog: true, run: openSettings },
-    { key: 'manage', group: 'Actions', icon: 'manage', label: 'Manage accounts', words: 'add edit rename colour color remove', opensDialog: true, run: () => { renderManageList(); openModal(manageDialog); } },
+    { key: 'add', group: 'Actions', icon: 'add', label: 'Add an AI…', words: 'new tab account website app chatgpt gemini perplexity picker', opensDialog: true, run: () => openPicker() },
+    { key: 'manage', group: 'Actions', icon: 'manage', label: 'Manage tabs', words: 'accounts add edit rename colour color remove', opensDialog: true, run: () => { renderManageList(); openModal(manageDialog); } },
   );
   // The other layouts there are enough accounts for. Run before the switcher closes, so the Claude windows show only
   // once the new panes are in place.
@@ -940,14 +994,14 @@ function switcherCommands() {
     // bar's Wait / Restart.
     if (s.frozen) continue;
     if (s.status === 'stopped') {
-      cmds.push({ key: `start:${a.id}`, group: 'Actions', icon: 'start', dot: a.color, label: `Start ${a.name}`, words: 'run open launch', run: () => { api.startAccount(a.id); toast(`Starting ${a.name}…`); } });
+      cmds.push({ key: `start:${a.id}`, group: 'Actions', icon: 'start', dot: a.color, label: `${a.kind === 'web' ? 'Open' : 'Start'} ${a.name}`, words: 'run open launch', run: () => { api.startAccount(a.id); toast(`Starting ${a.name}…`); } });
     } else if (s.running && s.status !== 'external' && s.status !== 'stopping') {
       // Not awaited: stopAccount opens its confirmation at once and waits on it.
-      cmds.push({ key: `stop:${a.id}`, group: 'Actions', icon: 'stop', dot: a.color, label: `Stop ${a.name}…`, words: 'quit close end', opensDialog: true, run: () => { stopAccount(a); } });
+      cmds.push({ key: `stop:${a.id}`, group: 'Actions', icon: 'stop', dot: a.color, label: `${a.kind === 'web' ? 'Close' : 'Stop'} ${a.name}…`, words: 'quit close end', opensDialog: true, run: () => { stopAccount(a); } });
     }
   }
   // Each account's linked Chrome profile (only those that have one).
-  for (const a of chromeInfo.installed ? accounts : []) {
+  for (const a of chromeInfo.installed ? claudeAccounts() : []) {
     const link = (chromeInfo.accounts[a.id] || {}).link;
     if (link) cmds.push({ key: `chrome:${a.id}`, group: 'Actions', icon: 'chrome', dot: a.color, label: `Open Chrome for ${a.name}`, sub: link.name, words: 'chrome browser profile extension', run: () => { openChrome(a); } });
   }
@@ -993,6 +1047,7 @@ const SW_ICONS = {
   stop: 'M6 6h12v12H6z',
   // A browser window: frame, tab strip and a dot for the address bar.
   chrome: 'M3 6.5A1.5 1.5 0 0 1 4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5zM3 9h18M6 7h.01M8.5 7h.01',
+  add: 'M12 5v14M5 12h14',
   // Continue in another account: an arrow leaving one box for another.
   handoff: 'M4 5h7v14H4zM14 12h7M18 8.5l3.5 3.5-3.5 3.5',
 };
@@ -1036,7 +1091,7 @@ function renderSwitcher() {
       it.right ? el('span', { class: 'sw-right', text: it.right }) : null,
       it.kbd ? el('kbd', { class: 'sw-kbd', text: it.kbd }) : null,
       // A session can be carried on in another account (shown on the chosen or hovered row; Ctrl+Enter does it too).
-      it.handoff && accounts.length > 1 ? el('button', {
+      it.handoff && claudeAccounts().length > 1 ? el('button', {
         class: 'sw-handoff', type: 'button', tabindex: '-1',
         'data-hint': 'Continue in another account · Ctrl+Enter', 'aria-label': `Continue “${it.label}” in another account`,
         onclick: (e) => { e.stopPropagation(); handoffFromSwitcher(it, e.currentTarget); },
@@ -1131,7 +1186,7 @@ swInput.addEventListener('keydown', (e) => {
     e.preventDefault();
     const it = swItems.find((x) => x.key === swActiveKey);
     const n = swItems.indexOf(it);
-    if (it && it.handoff && accounts.length > 1) handoffFromSwitcher(it, document.getElementById(`sw-opt-${n}`));
+    if (it && it.handoff && claudeAccounts().length > 1) handoffFromSwitcher(it, document.getElementById(`sw-opt-${n}`));
     return;
   }
   if (e.key === 'Enter') { e.preventDefault(); runSwitcherItem(swItems.find((it) => it.key === swActiveKey)); }
@@ -1171,7 +1226,7 @@ function handoffIcon() {
 // The other accounts. ok: it can read this session's conversation. The one with the most 5-hour usage left is marked.
 function handoffTargets(fromId) {
   const from = byId(fromId);
-  const list = accounts.filter((a) => a.id !== fromId).map((a) => {
+  const list = claudeAccounts().filter((a) => a.id !== fromId).map((a) => {
     const ok = Boolean(from && from.shareCode && a.shareCode);
     const u = (sessions[a.id] || {}).usage;
     const s = status[a.id] || {};
@@ -1287,6 +1342,122 @@ async function offerHandoffRestart(a, r) {
   toast(res.opened ? `Continuing “${r.title}” in ${a.name}` : `“${r.title}” is in ${a.name}; open it from Claude's sidebar.`);
 }
 
+// ---------- add an AI (the picker) ----------
+
+// main (lib/catalog.js) lists what can be added and which of it is on this PC; the page only names entries by id.
+// Choosing a Claude or website entry opens the tab dialog for it. A kind that can't be added yet says so, and anything
+// not installed has "Get it" (its download page, opened by main in the default browser).
+const picker = $('#picker');
+let catalogData = null;
+let pickerGroup = 'All';
+let fetchedSince = false; // "Get it" was used: look at the PC again next time, the app may be installed by then
+
+async function openPicker() {
+  if (!picker.open && !openModal(picker)) return;
+  $('#pk-search').value = '';
+  pickerGroup = 'All';
+  renderPicker();
+  $('#pk-search').focus();
+  if (!api.getCatalog) return;
+  const c = await api.getCatalog(fetchedSince).catch(() => null);
+  fetchedSince = false;
+  if (c) { catalogData = c; if (picker.open) renderPicker(); }
+}
+
+function pickerInitials(name) {
+  const words = name.replace(/\(.*\)/, '').trim().split(/\s+/);
+  return (words.length > 1 && words[1][0] === words[1][0].toUpperCase() ? words[0][0] + words[1][0] : name.slice(0, 1)).toUpperCase();
+}
+
+function renderPicker() {
+  const typed = $('#pk-search').value.trim();
+  const tokens = typed.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!catalogData) {
+    $('#pk-groups').replaceChildren();
+    $('#pk-list').replaceChildren(el('p', { class: 'muted pk-empty', text: 'Looking at what\'s on this PC…' }));
+    return;
+  }
+  // While searching, every group is searched.
+  $('#pk-groups').replaceChildren(...['All', ...catalogData.groups].map((g) => el('button', {
+    class: 'pk-chip', type: 'button', role: 'tab', 'aria-selected': String(!tokens.length && g === pickerGroup), text: g,
+    onclick: () => { pickerGroup = g; $('#pk-search').value = ''; renderPicker(); },
+  })));
+  const match = (e) => {
+    const hay = `${e.name} ${e.by} ${e.blurb} ${e.group} ${KIND_NAMES[e.kind]} ${e.url ? hostOf(e.url) : ''}`.toLowerCase();
+    return tokens.every((t) => hay.includes(t));
+  };
+  const shown = catalogData.entries.filter((e) => (tokens.length || pickerGroup === 'All' || e.group === pickerGroup) && match(e));
+  const sections = catalogData.groups.map((g) => {
+    const list = shown.filter((e) => e.group === g);
+    return list.length ? el('section', { class: 'pk-section' }, [el('h3', { text: g }), el('div', { class: 'pk-grid' }, list.map(pickerCard))]) : null;
+  }).filter(Boolean);
+  $('#pk-list').replaceChildren(...(sections.length ? sections
+    : [el('p', { class: 'muted pk-empty', text: `Nothing matches “${typed}”. Add it by its address with “Any website” (under Your own).` })]));
+  const found = catalogData.entries.filter((e) => e.installed === true).length;
+  $('#pk-note').textContent = `${found} found on this PC · each website tab has its own sign-in`;
+}
+
+function pickerCard(e) {
+  const added = accounts.filter((a) => a.catalogId === e.id).length;
+  const state = e.soon ? ['soon', e.installed ? 'On this PC · coming soon' : 'Coming soon']
+    : e.installed === true ? ['ok', 'On this PC']
+      : e.installed === false ? ['missing', 'Not installed'] : null;
+  return el('div', { class: `pk-card${e.soon ? ' soon' : ''}`, style: `--acc:${e.color}` }, [
+    el('button', {
+      class: 'pk-main', type: 'button',
+      'aria-label': `${e.name}${e.by ? ` by ${e.by}` : ''}, ${KIND_NAMES[e.kind]}${state ? `, ${state[1]}` : ''}`,
+      onclick: () => choosePickerEntry(e),
+    }, [
+      el('span', { class: 'pk-logo', 'aria-hidden': 'true', text: e.custom ? '+' : pickerInitials(e.name) }),
+      el('span', { class: 'pk-text' }, [
+        el('span', { class: 'pk-name' }, [el('span', { text: e.name }), added ? el('span', { class: 'pk-added', text: added === 1 ? 'Added' : `${added} added` }) : null]),
+        el('small', { class: 'pk-by', text: [e.by, KIND_NAMES[e.kind]].filter(Boolean).join(' · ') }),
+        el('span', { class: 'pk-blurb', text: e.blurb }),
+      ]),
+    ]),
+    el('div', { class: 'pk-foot' }, [
+      state ? el('span', { class: `pk-state ${state[0]}`, text: state[1] }) : el('span', { class: 'pk-state web', text: e.url ? hostOf(e.url) : '' }),
+      e.canGet && e.installed === false ? el('button', { class: 'btn ghost small', type: 'button', text: 'Get it', onclick: () => getIt(e) }) : null,
+    ]),
+  ]);
+}
+
+async function getIt(e) {
+  if (!api.getIt) return;
+  fetchedSince = true;
+  const ok = await api.getIt(e.id).catch(() => false);
+  toast(ok ? `Opening ${e.name}'s download page in your browser. Add it here once it's installed.` : `Couldn't open ${e.name}'s download page.`);
+}
+
+function choosePickerEntry(e) {
+  if (e.soon) {
+    toast(`${KIND_NAMES[e.kind]} tabs come in the next Kitsun update.${e.installed === false && e.canGet ? ' You can get it already.' : ''}`,
+      e.installed === false && e.canGet ? { label: 'Get it', onClick: () => getIt(e) } : null);
+    return;
+  }
+  if (e.kind === 'claude' && e.installed === false) {
+    toast('The Claude desktop app isn\'t installed yet.', { label: 'Get it', onClick: () => getIt(e) });
+    return;
+  }
+  // The tab dialog opens over the picker before it closes, so the panes don't flash in between.
+  openAccountDialog(null, { kind: e.kind, entry: e });
+  if (dialog.open) picker.close();
+}
+
+$('#pk-search').addEventListener('input', renderPicker);
+$('#pk-search').addEventListener('keydown', (e) => {
+  // Enter adds the first match.
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const first = picker.querySelector('.pk-card:not(.soon) .pk-main');
+  if (first) first.click();
+});
+$('#pk-close').addEventListener('click', () => picker.close());
+picker.addEventListener('mousedown', (e) => {
+  const r = picker.getBoundingClientRect();
+  if (e.target === picker && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) picker.close();
+});
+
 // ---------- title-bar hints ----------
 
 // Windows' own tooltips get stuck when the mouse moves from the title bar straight onto a docked
@@ -1377,7 +1548,8 @@ async function init() {
       if (ui.home) Home.chrome();
     }).catch(() => {});
   }
-  if (!state.claudeInstalled) toast('The Claude desktop app isn\'t installed. Get it from claude.ai/download.');
+  if (!accounts.length) openPicker();
+  else if (!state.claudeInstalled && claudeAccounts().length) toast('The Claude desktop app isn\'t installed. Get it from claude.ai/download.');
 }
 // home.js loads after this file and render() needs it, so start once every script has run.
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });

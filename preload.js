@@ -39,4 +39,6 @@ contextBridge.exposeInMainWorld('kitsun', {
   onOpenSettings: (fn) => ipcRenderer.on('open-settings', () => fn()),
   onStatus: (fn) => ipcRenderer.on('status', (_e, s) => fn(s)),
   onUi: (fn) => ipcRenderer.on('ui', (_e, ui) => fn(ui)),
+  getCatalog: (fresh) => ipcRenderer.invoke('catalog:get', fresh === true),
+  getIt: (id) => ipcRenderer.invoke('catalog:get-it', id),
 });
