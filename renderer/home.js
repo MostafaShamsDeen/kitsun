@@ -17,6 +17,7 @@ const Home = (() => {
   let refs = {};            // nodes that get updated in place
   let cardRefs = new Map(); // account id -> live-status nodes of its card (the cheap onStatus path)
   let sky = null;           // the hero's canvas animation
+  let fox = null;           // the hero's fox mascot (fox.js)
   let shown = false;
   let stats = null;
   let timer = 0;
@@ -388,7 +389,7 @@ const Home = (() => {
   // ---------- skeleton ----------
 
   const TILES = [
-    { key: 'running', label: 'Accounts running' },
+    { key: 'running', label: 'Tabs open' },
     { key: 'code', label: 'Claude Code sessions open' },
     { key: 'prompts', label: 'Prompts · last 7 days' },
     { key: 'tokens', label: 'Output tokens · last 7 days' },
@@ -419,9 +420,14 @@ const Home = (() => {
       searchInput,
       el('kbd', { text: 'Ctrl+Alt+K' }),
     ]);
+    // Kitsun the fox: one tail per tab, which shows how that tab is doing; clicking a tail opens its tab.
+    fox = KitsunFox.mascot({ onPick: (id) => show(id) });
     const hero = el('section', { class: 'hero' }, [
       canvas,
-      el('div', { class: 'hero-top' }, [el('div', { class: 'hero-text' }, [refs.greet, refs.date]), searchBox]),
+      el('div', { class: 'hero-main' }, [
+        el('div', { class: 'hero-left' }, [el('div', { class: 'hero-text' }, [refs.greet, refs.date]), searchBox]),
+        fox.node,
+      ]),
       tiles,
     ]);
 
@@ -447,7 +453,7 @@ const Home = (() => {
         hero,
         el('section', { class: 'home-section' }, [
           el('div', { class: 'section-head' }, [
-            el('h2', { text: 'Accounts' }),
+            el('h2', { text: 'Your AIs' }),
             el('span', { class: 'note', text: 'Right-click a card to edit it' }),
           ]),
           refs.cards,
@@ -474,14 +480,27 @@ const Home = (() => {
 
   // ---------- hero ----------
 
+  // A tab's mood for its tail: frozen, needs you, working, or its plain state.
+  function moodOf(v) {
+    const s = status[v.id] || {};
+    const att = sessions[v.id] || {};
+    if (s.frozen) return 'frozen';
+    if (v.state === 'docked' && att.waiting) return 'needs';
+    if (v.state === 'docked' && att.working) return 'working';
+    if (v.state === 'docked' || v.state === 'external') return 'live';
+    if (v.state === 'starting' || v.state === 'stopping') return 'starting';
+    return 'stopped';
+  }
+
   function renderHero(list, animate) {
     refs.greet.textContent = greeting();
+    fox.update(list.map((v) => ({ id: v.id, name: v.name, color: v.color, mood: moodOf(v) })));
     const now = new Date();
     const running = list.filter((v) => v.state === 'docked' || v.state === 'external').length;
     const lastAt = Math.max(0, ...list.map((v) => v.sessions.lastActivityAt || 0));
     refs.date.textContent = [
       now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
-      `${list.length} account${list.length === 1 ? '' : 's'}`,
+      `${list.length} tab${list.length === 1 ? '' : 's'}`,
       stats && lastAt ? `last prompt ${ago(lastAt)}` : null,
     ].filter(Boolean).join(' · ');
 

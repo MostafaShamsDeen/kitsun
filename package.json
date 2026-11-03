@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-icon.ps1 && node scripts/make-icon.js",
+    "icon": "electron scripts/draw-icon.js && node scripts/make-icon.js",
     "package": "electron-packager . Kitsun --platform=win32 --arch=x64 --out=dist --overwrite --icon=build/icon.ico --ignore=\"^/scripts($|/)\" --ignore=\"^/node_modules/koffi/(src|doc|vendor)($|/)\" --ignore=\"^/node_modules/koffi/build/koffi/(?!win32_x64)\" --asar.unpack=\"*.node\" --prune=true"
   },
   "devDependencies": {

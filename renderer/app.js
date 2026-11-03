@@ -3,7 +3,7 @@
 
 const api = window.kitsun;
 
-const COLORS = ['#d97757', '#5b8def', '#3fb68b', '#c678dd', '#e5b84f', '#e06c9f', '#4fb8c9', '#9b968c'];
+const COLORS = ['#ff7b3a', '#8b7bff', '#34d399', '#5b9dff', '#ffb547', '#f472b6', '#22d3ee', '#a3acbf'];
 
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
@@ -111,6 +111,7 @@ async function show(id) {
   render();
 }
 
+$('#home').append(KitsunFox.mark());
 $('#home').addEventListener('click', async () => {
   if (!api.goHome) return;
   ui = await api.goHome();

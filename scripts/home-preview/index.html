@@ -1,9 +1,10 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <!-- Dev preview of the renderer in a normal browser (not shipped: the packager ignores scripts/). Serve the repo root
-       with any static server and open /scripts/home-preview/?state=full|empty|one (&scan=1 to show the scanning state,
-       &dialog=settings to open the Settings dialog as the tray menu does, &dev=1 to show it as a run from source). -->
+  <!-- Dev preview of the renderer in a normal browser (not shipped: the packager ignores scripts/). Built by make-index.js
+       from renderer/index.html. Serve the repo root with any static server and open /scripts/home-preview/?state=full|empty|one
+       (&scan=1 to show the scanning state, &dialog=settings to open the Settings dialog as the tray menu does, &dev=1 to
+       show it as a run from source). -->
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
   <title>Kitsun · Home preview</title>
@@ -11,7 +12,7 @@
 </head>
 <body>
   <header class="titlebar">
-    <button id="home" class="tb-btn brand-mark" type="button" data-hint="Home · Ctrl+Alt+0" aria-label="Home"><span class="bm" aria-hidden="true"><i></i><i></i></span></button>
+    <button id="home" class="tb-btn brand-mark" type="button" data-hint="Home · Ctrl+Alt+0" aria-label="Home"></button>
     <nav id="tabs" class="tabs" role="tablist" aria-label="Your AIs"></nav>
     <button id="add-tab" class="tb-btn" type="button" data-hint="Add an AI" aria-label="Add an AI" aria-haspopup="dialog">+</button>
     <span class="spacer"></span>
@@ -161,6 +162,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="stub.js"></script>
+  <script src="../../renderer/fox.js"></script>
   <script src="../../renderer/app.js"></script>
   <script src="../../renderer/home.js"></script>
 </body>

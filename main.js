@@ -514,7 +514,7 @@ function startWeb(account) {
     const partition = partitionOf(account.id);
     webSessionFor(account.id);
     const view = new WebContentsView({ webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: true } });
-    view.setBackgroundColor('#1a1917');
+    view.setBackgroundColor('#0d0f15');
     view.setVisible(false);
     const wc = view.webContents;
     wc.setWindowOpenHandler(({ url }) => {
@@ -1750,11 +1750,11 @@ function createWindow({ hidden = false } = {}) {
     ...initialBounds(),
     minWidth: 720,
     minHeight: 480,
-    backgroundColor: '#1a1917',
+    backgroundColor: '#0d0f15',
     title: 'Kitsun',
     icon: path.join(__dirname, 'build', 'icon.png'),
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#1f1e1c', symbolColor: '#ece9e2', height: 40 },
+    titleBarOverlay: { color: '#090b10', symbolColor: '#edf0f7', height: 40 },
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
