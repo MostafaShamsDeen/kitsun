@@ -10,6 +10,7 @@
 const { app, BrowserWindow, WebContentsView, session, clipboard, ipcMain, shell, dialog, Menu, Tray, nativeImage, screen, globalShortcut, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const os = require('os');
 const { spawn, spawnSync, execFile, execFileSync } = require('child_process');
 const win32 = require('./lib/win32');
@@ -2592,16 +2593,71 @@ ipcMain.handle('account:sign-in-link', async (event, id, text) => {
 
 // ---------- lifecycle ----------
 
+// Explorer caches icons by file path, and Kitsun.exe keeps its path across updates, so after a new icon the taskbar,
+// desktop and Start would go on showing the old one. Shortcuts point at a copy of the icon named after its contents
+// instead: a new icon is a new path, which Explorer has to read afresh. Falls back to the exe itself.
+let iconCopy = null;
+function shortcutIcon() {
+  if (iconCopy) return iconCopy;
+  try {
+    const ico = fs.readFileSync(path.join(__dirname, 'build', 'icon.ico'));
+    const name = `kitsun-${crypto.createHash('sha1').update(ico).digest('hex').slice(0, 10)}.ico`;
+    const dir = path.join(app.getPath('userData'), 'icons');
+    const file = path.join(dir, name);
+    if (!fs.existsSync(file)) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, ico);
+    }
+    iconCopy = file;
+  } catch {
+    iconCopy = process.execPath;
+  }
+  return iconCopy;
+}
+
+// Every shortcut on the desktop, in Start and pinned to the taskbar that opens Kitsun gets the current icon. One that
+// still opens the old Multi Claude (e.g. a desktop shortcut made before the rename) is pointed at Kitsun as well.
+function refreshShortcutIcons() {
+  const icon = shortcutIcon();
+  const oldExe = path.join(path.dirname(path.dirname(process.execPath)), OLD_APP.name, `${OLD_APP.name}.exe`);
+  const folders = [
+    app.getPath('desktop'),
+    path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+    path.join(app.getPath('appData'), 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar'),
+  ];
+  let changed = false;
+  for (const dir of folders) {
+    let names = [];
+    try { names = fs.readdirSync(dir).filter((n) => n.toLowerCase().endsWith('.lnk')); } catch { continue; }
+    for (const n of names) {
+      const lnk = path.join(dir, n);
+      try {
+        const s = shell.readShortcutLink(lnk);
+        const ours = samePath(s.target, process.execPath);
+        if (!ours && !samePath(s.target, oldExe)) continue;
+        if (ours && samePath(s.icon || '', icon)) continue;
+        shell.writeShortcutLink(lnk, 'update', { target: process.execPath, icon, iconIndex: 0, ...(ours ? {} : { appUserModelId: APP_ID, description: 'All your AIs in one window' }) });
+        changed = true;
+        // A desktop shortcut can take the new name too (a taskbar pin can't: the pin is tied to its file name).
+        const renamed = path.join(dir, 'Kitsun.lnk');
+        if (!ours && dir === folders[0] && n === `${OLD_APP.name}.lnk` && !fs.existsSync(renamed)) fs.renameSync(lnk, renamed);
+      } catch { /* not a readable shortcut */ }
+    }
+  }
+  if (changed) { try { win32.iconsChanged(); } catch { /* Explorer picks it up later */ } }
+}
+
 // Windows only shows notifications for apps that have a Start Menu shortcut carrying their app ID.
 function ensureStartMenuShortcut() {
   if (!app.isPackaged) return;
   try {
     const lnk = path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Kitsun.lnk');
     shell.writeShortcutLink(lnk, fs.existsSync(lnk) ? 'update' : 'create', {
-      target: process.execPath, appUserModelId: APP_ID, icon: process.execPath, iconIndex: 0,
+      target: process.execPath, appUserModelId: APP_ID, icon: shortcutIcon(), iconIndex: 0,
       description: 'All your AIs in one window',
     });
   } catch { /* cosmetic */ }
+  if (isInstalledCopy()) refreshShortcutIcons();
 }
 
 // ---------- taking over from Multi Claude (this app's old name) ----------
@@ -2654,7 +2710,7 @@ function takeOverOldShellItems() {
   const pin = path.join(app.getPath('appData'), 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar', `${OLD_APP.name}.lnk`);
   try {
     if (fs.existsSync(pin) && !samePath(shell.readShortcutLink(pin).target, process.execPath)) {
-      shell.writeShortcutLink(pin, 'replace', { target: process.execPath, appUserModelId: APP_ID, icon: process.execPath, iconIndex: 0, description: 'All your AIs in one window' });
+      shell.writeShortcutLink(pin, 'replace', { target: process.execPath, appUserModelId: APP_ID, icon: shortcutIcon(), iconIndex: 0, description: 'All your AIs in one window' });
     }
   } catch { /* cosmetic */ }
 }
