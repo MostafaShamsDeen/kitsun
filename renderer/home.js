@@ -211,6 +211,14 @@ const Home = (() => {
     let orbs = [];
     const mouse = { x: 0, y: 0, tx: 0, ty: 0 }; // pointer offset from the centre, -1..1, eased
     const sprites = new Map();
+    // Foxfire embers in the kitsune's reds, rising through the hero whatever the accounts are. Their places are worked
+    // out from the time alone, so there is nothing to step or respawn.
+    const EMBER_COLORS = ['#ff3d5f', '#ff6b84', '#ffb3c1', '#f1e2fc'];
+    const embers = Array.from({ length: 22 }, (_, i) => ({
+      x: Math.random(), off: Math.random(), rise: 0.03 + Math.random() * 0.05,
+      wob: 4 + Math.random() * 10, f: 0.4 + Math.random() * 0.8, p: Math.random() * Math.PI * 2,
+      r: 1.2 + Math.random() * 2.2, a: 0.35 + Math.random() * 0.45, color: EMBER_COLORS[i % EMBER_COLORS.length],
+    }));
 
     function rgb(hex) {
       const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
@@ -335,6 +343,14 @@ const Home = (() => {
         const size = o.big ? o.r * 2.6 : o.r * 7;
         ctx.globalAlpha = o.a * (o.big ? 1 : 0.8 + 0.2 * Math.sin(t * 0.9 + o.p * 3));
         ctx.drawImage(sprite(o.color), o.x - size / 2, o.y - size / 2, size, size);
+      }
+      for (const e of embers) {
+        const k = (t * e.rise + e.off) % 1; // 0 at the bottom edge, 1 at the top
+        const x = e.x * w + Math.sin(t * e.f + e.p) * e.wob + mouse.x * 10;
+        const y = h + 10 - k * (h + 30);
+        const size = e.r * 7 * (1 - k * 0.5);
+        ctx.globalAlpha = e.a * Math.min(1, k * 6) * (1 - k) * (0.75 + 0.25 * Math.sin(t * 5 + e.p));
+        ctx.drawImage(sprite(e.color), x - size / 2, y - size / 2, size, size);
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';

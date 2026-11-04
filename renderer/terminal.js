@@ -11,10 +11,10 @@
     scrollback: 5000,
     allowTransparency: false,
     theme: {
-      background: '#0d0f15', foreground: '#edf0f7', cursor: '#ff3d5f', cursorAccent: '#0d0f15',
+      background: '#0f0c1c', foreground: '#f5f0fa', cursor: '#ff3d5f', cursorAccent: '#0f0c1c',
       selectionBackground: 'rgba(255, 61, 95, 0.32)',
-      black: '#1b202b', red: '#f87171', green: '#34d399', yellow: '#fbbf24', blue: '#5b9dff', magenta: '#c084fc', cyan: '#22d3ee', white: '#d4d8e2',
-      brightBlack: '#5d667c', brightRed: '#fca5a5', brightGreen: '#6ee7b7', brightYellow: '#fde68a', brightBlue: '#93c0ff', brightMagenta: '#ddb6fe', brightCyan: '#67e8f9', brightWhite: '#ffffff',
+      black: '#1f1a36', red: '#f87171', green: '#34d399', yellow: '#fbbf24', blue: '#5b9dff', magenta: '#c084fc', cyan: '#22d3ee', white: '#d4d8e2',
+      brightBlack: '#6b5f8c', brightRed: '#fca5a5', brightGreen: '#6ee7b7', brightYellow: '#fde68a', brightBlue: '#93c0ff', brightMagenta: '#ddb6fe', brightCyan: '#67e8f9', brightWhite: '#ffffff',
     },
   });
   const fit = new FitAddon.FitAddon();

@@ -6,23 +6,24 @@
 .brand-mark[aria-current="page"] .fox-mark { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--fox) 55%, transparent)); }
 .brand-mark:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
-/* Kitsun's colours: night-ink surfaces (a cool blue-black), the kitsune's mask red as the accent (--fox), foxfire violet as
-   the second colour.
+/* Kitsun's colours, taken from the kitsune itself: surfaces in the deep navy of its outline, its mask red as the accent
+   (--fox), and the pale lilac of its shading as the soft second colour (--foxfire).
    Every colour in the page comes from here. */
 :root {
-  --bg: #0d0f15;
-  --titlebar: #090b10;
-  --panel: #141821;
-  --panel-2: #1b202b;
-  --raise: #222836;
-  --line: #262c3a;
-  --line-soft: #1e2330;
-  --text: #edf0f7;
-  --muted: #8790a4;
+  --bg: #0f0c1c;
+  --titlebar: #0b0915;
+  --panel: #171329;
+  --panel-2: #1f1a36;
+  --raise: #282242;
+  --line: #2f2849;
+  --line-soft: #241f3c;
+  --text: #f5f0fa;
+  --muted: #a49bbf;
   --fox: #ff3d5f;
   --fox-2: #ff6b84;
+  --fox-deep: #d8345a;
   --fox-ink: #2a0610;
-  --foxfire: #8b7bff;
+  --foxfire: #f1e2fc;
   --ok: #34d399;
   --warn: #fbbf24;
   --danger: #f87171;
@@ -30,32 +31,32 @@
   --titlebar-h: 40px;
   --radius: 14px;
   --switch-on: var(--fox);
-  --switch-off: #2c3242;
+  --switch-off: #2f2a48;
   /* "needs you": badges, the home strip */
   --needs: #ffb547;
   --needs-ink: #1e1304;
   /* quick switcher: the chosen row, and the typed words in results */
-  --sw-active: #232a3a;
+  --sw-active: #2a2343;
   --hit: rgb(255 61 95 / .3);
   /* pane dividers: the grip at rest, and the line while hovered or dragged */
-  --divider-grip: #313849;
-  --divider-line: #5d667c;
+  --divider-grip: #3a3256;
+  --divider-line: #6b5f8c;
   /* home screen */
   --brand-a: #ff3d5f;
-  --brand-b: #8b7bff;
-  --home-glow: rgb(139 123 255 / .13);
-  --home-glow-2: rgb(255 61 95 / .08);
-  --hero-top: #1a1830;
-  --tile-bg: rgb(13 15 21 / .55);
-  --tile-line: rgb(255 255 255 / .07);
-  --tip-bg: #1b202b;
+  --brand-b: #ff8fa3;
+  --home-glow: rgb(255 61 95 / .15);
+  --home-glow-2: rgb(241 226 252 / .06);
+  --hero-top: #2b1330;
+  --tile-bg: rgb(15 12 28 / .55);
+  --tile-line: rgb(241 226 252 / .08);
+  --tip-bg: #1f1a36;
   /* charts: hairlines one step off the panel surface */
-  --grid: #1f2431;
-  --axis: #343b4c;
-  --ring-track: #232937;
-  /* sequential ramp for the heatmap: night ink to kitsune red (empty, then light to dense) */
-  --heat-0: #1b202b;
-  --heat-1: #2a2235;
+  --grid: #231e3a;
+  --axis: #3b3458;
+  --ring-track: #2a2443;
+  /* sequential ramp for the heatmap: navy ink to kitsune red (empty, then light to dense) */
+  --heat-0: #1f1a36;
+  --heat-1: #2d2140;
   --heat-2: #48263b;
   --heat-3: #742b45;
   --heat-4: #b03250;
@@ -83,8 +84,8 @@ button { cursor: pointer; }
 .muted { color: var(--muted); }
 h1, h2, h3, .tile-value, .mini b { font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #2a3040; border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background-color: #3a4256; }
+::-webkit-scrollbar-thumb { background: #332b52; border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: #6b2a4a; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* ---------- title bar with tabs ---------- */
@@ -1035,42 +1036,190 @@ kbd {
 .pk-state.web { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acard.web { align-self: start; }
 
-/* ---------- the fox mascot (fox.js): a sitting kitsune, one tail per tab, its tip in the tab's colour ---------- */
+/* ---------- home animations: the page moves like the kitsune's foxfire ---------- */
 
-.fox-box { flex: none; width: 220px; margin: -16px -6px -2px 0; }
-.fox-mascot { display: block; width: 100%; height: auto; overflow: visible; }
-.fox-shadow { fill: rgb(0 0 0 / .35); }
-.fox-tail { cursor: pointer; outline: none; transition: opacity .3s, filter .3s; }
-.fox-tail-fur { fill: #fff; }
-.fox-tail-shade { fill: #ddd0e2; }
-.fox-tail-tip { fill: var(--c); }
-.fox-tail-line { fill: none; stroke: #1f1a5c; stroke-width: 2.2; stroke-linejoin: round; }
-.fox-tail:hover .fox-tail-tip, .fox-tail:focus-visible .fox-tail-tip { filter: brightness(1.15); }
-.fox-tail:focus-visible .fox-tail-line { stroke: var(--focus-ring); stroke-width: 3; }
-/* Swings from the tail's root (0, 0): 56% across its box, at the bottom (see TAIL in fox.js). */
-.fox-sway { transform-box: fill-box; transform-origin: 56% 100%; animation: sway 6s ease-in-out var(--d) infinite alternate; }
-.fox-tail.working .fox-sway { animation: wag 1.1s ease-in-out var(--d) infinite alternate; }
-.fox-tail.needs .fox-sway { animation: wag .7s ease-in-out infinite alternate; }
-.fox-tail.needs { filter: drop-shadow(0 0 8px var(--needs)); animation: glow 1.6s ease-in-out infinite; }
-.fox-tail.starting { animation: pulse 1.2s ease-in-out infinite; }
-.fox-tail.stopped { opacity: .3; filter: saturate(.25); }
-.fox-tail.stopped .fox-sway { animation: none; }
-.fox-tail.frozen .fox-sway { animation: none; }
-.fox-tail.frozen .fox-tail-line { stroke: var(--danger); stroke-width: 3; stroke-dasharray: 6 5; }
-@keyframes sway { from { transform: rotate(-3deg); } to { transform: rotate(3deg); } }
-@keyframes wag { from { transform: rotate(-9deg); } to { transform: rotate(9deg); } }
-@keyframes glow { 50% { filter: drop-shadow(0 0 2px var(--needs)); } }
-/* The head blinks now and then; it perks up its ears and cocks its head when a tab needs you, and dozes (eyes nearly
-   shut) when every tab is closed. */
-.fox-mascot .fox-eyes { transform-box: fill-box; transform-origin: center; animation: blink 4.5s infinite; }
-.fox-mascot .fox-ears { transform-box: view-box; transition: transform .3s; }
-.fox-mascot.fox-alert .fox-ears { transform: translateY(-2px); }
-.fox-mascot.fox-alert .fox-head { animation: perk 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 90%; }
-.fox-mascot.fox-asleep .fox-eyes { animation: none; transform: scaleY(.25); }
-@keyframes blink { 0%, 95%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
-@keyframes perk { 50% { transform: rotate(-4deg); } }
-@media (max-width: 900px) { .fox-box { width: 180px; } }
+/* A slow red aurora drifts behind everything (its own layer, moved with transforms only, so it is cheap). */
+.home::before {
+  content: ""; position: fixed; inset: var(--titlebar-h) 0 0 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(38% 48% at 14% 8%, rgb(255 61 95 / .17), transparent 70%),
+    radial-gradient(34% 44% at 88% 22%, rgb(241 226 252 / .07), transparent 70%),
+    radial-gradient(44% 52% at 58% 104%, rgb(216 52 90 / .12), transparent 70%);
+  animation: home-aurora 28s ease-in-out infinite alternate;
+}
+.home-inner { position: relative; z-index: 1; }
+@keyframes home-aurora { from { transform: translate3d(-3%, -2%, 0) scale(1.06); } to { transform: translate3d(3%, 2.5%, 0) scale(1.14); } }
+
+/* A spark of red light runs round the hero's edge. */
+@property --hero-spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.hero::after {
+  content: ""; position: absolute; inset: 0; padding: 1px; border-radius: inherit; pointer-events: none;
+  background: conic-gradient(from var(--hero-spin), transparent 0deg 240deg, rgb(255 61 95 / .85) 300deg, rgb(255 179 193 / .7) 318deg, transparent 350deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: hero-spin 10s linear infinite;
+}
+@keyframes hero-spin { to { --hero-spin: 360deg; } }
+
+/* The greeting catches the light now and then. */
+.hero h1 {
+  background: linear-gradient(100deg, var(--text) 0%, var(--text) 42%, #ffb3c1 50%, var(--text) 58%, var(--text) 100%);
+  background-size: 260% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: greet-shine 8s ease-in-out infinite;
+}
+@keyframes greet-shine { 0%, 35% { background-position: 115% 0; } 75%, 100% { background-position: -15% 0; } }
+
+/* Stat tiles rise in one after another, lift on hover and draw a red line under themselves. */
+.tile { position: relative; overflow: hidden; transition: transform .25s, border-color .25s, box-shadow .25s; animation: tile-in .6s cubic-bezier(.2, .7, .2, 1) backwards; }
+.tile:nth-child(2) { animation-delay: .06s; }
+.tile:nth-child(3) { animation-delay: .12s; }
+.tile:nth-child(4) { animation-delay: .18s; }
+.tile:nth-child(5) { animation-delay: .24s; }
+.tile::before {
+  content: ""; position: absolute; left: 14px; right: 14px; bottom: 0; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--fox), var(--brand-b));
+  transform: scaleX(0); transform-origin: left; transition: transform .35s ease;
+}
+.tile:hover { transform: translateY(-2px); border-color: rgb(255 61 95 / .35); box-shadow: 0 12px 30px -20px rgb(255 61 95 / .7); }
+.tile:hover::before { transform: scaleX(1); }
+@keyframes tile-in { from { opacity: 0; transform: translateY(10px); } }
+
+/* Each section title has its own little foxfire. */
+.section-head h2 { display: inline-flex; align-items: center; gap: 9px; }
+.section-head h2::before {
+  content: ""; flex: none; width: 9px; height: 13px;
+  border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+  background: radial-gradient(circle at 50% 70%, #fff 0 16%, var(--fox-2) 42%, var(--fox) 72%);
+  box-shadow: 0 0 10px rgb(255 61 95 / .7);
+  transform-origin: 50% 100%;
+  animation: title-ember 1.7s ease-in-out infinite alternate;
+}
+@keyframes title-ember { from { transform: scale(1) rotate(-5deg); opacity: .8; } to { transform: scale(.9, 1.16) rotate(5deg); opacity: 1; } }
+
+/* A glint runs along the top edge of each account card now and then. */
+.acard::after {
+  content: ""; position: absolute; top: 0; left: -40%; width: 40%; height: 2px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / .85), transparent);
+  opacity: 0; animation: card-glint 7s ease-in-out 1.5s infinite;
+}
+.acard:nth-child(2)::after { animation-delay: 3.8s; }
+.acard:nth-child(3)::after { animation-delay: 6.1s; }
+@keyframes card-glint { 0%, 72% { transform: translateX(0); opacity: 0; } 76% { opacity: 1; } 100% { transform: translateX(350%); opacity: 0; } }
+
+/* Red buttons shine as the pointer passes. */
+.btn.primary { position: relative; overflow: hidden; }
+.btn.primary::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / .45) 50%, transparent 70%);
+  transform: translateX(-120%); transition: transform .6s ease;
+}
+.btn.primary:hover::after { transform: translateX(120%); }
+
+/* The "Needs you" mark breathes, and the search box glows red while you type. */
+.needs-mark { animation: needs-breathe 2.2s ease-in-out infinite; }
+@keyframes needs-breathe { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--needs) 0%, transparent), 0 0 12px var(--needs); } }
+.home-search { transition: border-color .2s, box-shadow .2s; }
+.home-search:focus-within { box-shadow: 0 0 0 4px rgb(255 61 95 / .14), 0 8px 26px -14px rgb(255 61 95 / .8); }
+
+@media (prefers-reduced-motion: reduce) {
+  .home::before, .hero::after, .hero h1, .tile, .section-head h2::before, .acard::after, .needs-mark { animation: none !important; }
+  .btn.primary::after, .tile, .tile::before { transition: none !important; }
+}
+
+/* ---------- the fox mascot (fox.js): a sitting kitsune with one red-tipped tail per tab, each tab a foxfire ---------- */
+
+.fox-box { flex: none; width: 300px; margin: -22px -10px -4px 0; }
+.fox-mascot { display: block; width: 100%; height: auto; overflow: visible; cursor: pointer; }
+.fox-shadow { fill: rgb(0 0 0 / .32); }
+
+/* Breathing: the whole fox rises and settles from the ground. A click makes it hop instead (with a happy squint). */
+/* Pivots are given in the SVG's own units (view-box): measured boxes would include the clipped overshoot of the tails. */
+.fox-breath { transform-box: view-box; transform-origin: 190px 282px; animation: fox-breathe 4.2s ease-in-out infinite; }
+.fox-mascot.fox-hop .fox-breath { animation: fox-hop .9s cubic-bezier(.3, .7, .3, 1); }
+.fox-mascot.fox-hop .fox-shadow { animation: fox-hop-shadow .9s cubic-bezier(.3, .7, .3, 1); transform-box: fill-box; transform-origin: center; }
+@keyframes fox-breathe { 50% { transform: scale(1.006, 1.016); } }
+@keyframes fox-hop {
+  0% { transform: none; }
+  18% { transform: scale(1.04, .94); }
+  45% { transform: translateY(-16px) scale(.98, 1.04); }
+  70% { transform: scale(1.03, .96); }
+  100% { transform: none; }
+}
+@keyframes fox-hop-shadow { 45% { transform: scale(.82); opacity: .6; } }
+
+/* The head follows the pointer (fox.js sets --lx / --ly, -1..1), and tilts or perks up on its own now and then. */
+.fox-look {
+  transform-box: fill-box; transform-origin: 50% 88%;
+  transform: translate(calc(var(--lx, 0) * 3px), calc(var(--ly, 0) * 2px)) rotate(calc(var(--lx, 0) * 7deg));
+  transition: transform .7s cubic-bezier(.2, .7, .2, 1);
+}
+.fox-idle { transform-box: fill-box; transform-origin: 50% 88%; transition: transform .8s ease; }
+.fox-mascot.fox-tilt .fox-idle { animation: fox-tilt 1.6s ease-in-out; }
+.fox-mascot.fox-alert .fox-idle { animation: fox-perk 1.8s ease-in-out infinite; }
+.fox-mascot.fox-asleep .fox-idle { transform: translateY(3px) rotate(4deg); }
+@keyframes fox-tilt { 30%, 60% { transform: rotate(-10deg); } }
+@keyframes fox-perk { 50% { transform: rotate(-5deg) translateY(-1px); } }
+
+/* Ears: a twitch now and then, pricked up while a tab needs you. */
+.fox-ear { transform-box: fill-box; transform-origin: 50% 100%; transition: transform .3s; }
+.fox-mascot.fox-twitch-l .fox-ear-l, .fox-mascot.fox-twitch-r .fox-ear-r { animation: fox-twitch .7s ease-in-out; }
+.fox-mascot.fox-alert .fox-ear { transform: translateY(-1.5px) scale(1.04); }
+@keyframes fox-twitch { 20% { transform: rotate(-9deg); } 40% { transform: rotate(5deg); } 60% { transform: rotate(-4deg); } }
+
+/* Eyes: a blink every few seconds (sometimes two), a happy squint on a hop, shut while it sleeps. */
+.fox-mascot .fox-eyes { transform-box: fill-box; transform-origin: center; animation: fox-blink 5.2s infinite; }
+.fox-mascot.fox-blink2 .fox-eyes { animation: fox-blink2 .9s; }
+.fox-mascot.fox-hop .fox-eyes, .fox-mascot.fox-asleep .fox-eyes { display: none; }
+.fox-mascot.fox-hop .fox-eyes-happy { display: inline; }
+.fox-mascot.fox-asleep:not(.fox-hop) .fox-eyes-sleep { display: inline; }
+@keyframes fox-blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.08); } }
+@keyframes fox-blink2 { 0%, 100% { transform: scaleY(1); } 15%, 55% { transform: scaleY(.08); } 35% { transform: scaleY(1); } }
+
+/* Sleeping: little z's drift up from its head. */
+.fox-zzz { display: none; fill: #f1e2fc; stroke: #1f1a5c; stroke-width: 1.6px; paint-order: stroke; font-weight: 800; font-family: inherit; }
+.fox-mascot.fox-asleep .fox-zzz { display: inline; }
+.fox-zzz text { opacity: 0; animation: fox-z 3.6s ease-out calc(var(--z) * 1.2s) infinite; }
+@keyframes fox-z { 0% { opacity: 0; transform: translate(0, 6px); } 25% { opacity: .9; } 100% { opacity: 0; transform: translate(10px, -16px); } }
+
+/* Tails: a slow sway, a wag while Claude works, an excited wag while it needs you, still while closed or frozen. A tail
+   flicks on its own now and then. Each swings from its root, the origin of its own coordinates (TAIL in fox.js). */
+.fox-tail { cursor: pointer; outline: none; transition: opacity .4s; }
+.fox-sway { transform-box: view-box; transform-origin: 0 0; animation: fox-sway 6s ease-in-out var(--d) infinite alternate; }
+.fox-tail.working .fox-sway { animation: fox-wag 1.1s ease-in-out var(--d) infinite alternate; }
+.fox-tail.needs .fox-sway { animation: fox-wag .6s ease-in-out infinite alternate; }
+.fox-tail.flick .fox-sway { animation: fox-flick .9s ease-in-out; }
+.fox-tail.stopped .fox-sway, .fox-tail.frozen .fox-sway { animation: none; }
+/* A closed tab's tip fades to pink; when every tab is closed the fox is just asleep, so its tails keep their red. */
+.fox-mascot:not(.fox-asleep) .fox-tail.stopped .fox-tail-tip { opacity: .4; }
+.fox-tail.frozen .fox-tail-line { stroke: var(--danger); stroke-dasharray: 6 5; }
+.fox-tail:hover .fox-tail-tip, .fox-tail:focus-visible .fox-tail-tip { filter: brightness(1.12); }
+.fox-tail:focus-visible .fox-tail-line { stroke: var(--focus-ring); stroke-width: 3.4; }
+@keyframes fox-sway { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg); } }
+@keyframes fox-wag { from { transform: rotate(-8deg); } to { transform: rotate(8deg); } }
+@keyframes fox-flick { 25% { transform: rotate(-12deg); } 55% { transform: rotate(9deg); } 80% { transform: rotate(-3deg); } }
+
+/* Foxfire, one per tab in its colour: flickers while open, flares while Claude works, blazes while it needs you, a faint
+   ember while closed, grey while frozen, fading in and out while it starts. */
+.fox-wisp {
+  transform-box: view-box; transform-origin: 0 9px; /* the flame's base, in its own coordinates */
+  filter: drop-shadow(0 0 5px var(--c));
+  animation: fox-flicker 1.9s ease-in-out var(--d) infinite alternate, fox-float 3.4s ease-in-out var(--d) infinite alternate;
+}
+.fox-tail.working .fox-wisp { animation: fox-flicker .42s ease-in-out infinite alternate, fox-float 1.6s ease-in-out infinite alternate; filter: drop-shadow(0 0 8px var(--c)); }
+.fox-tail.needs .fox-wisp { animation: fox-blaze 1s ease-in-out infinite; filter: drop-shadow(0 0 10px var(--c)) drop-shadow(0 0 4px #fff); }
+.fox-tail.starting .fox-wisp { animation: fox-kindle 1.3s ease-in-out infinite; }
+.fox-tail.stopped .fox-wisp { animation: none; transform: scale(.5); opacity: .35; filter: none; }
+.fox-tail.frozen .fox-wisp { animation: none; filter: grayscale(1); opacity: .7; }
+@keyframes fox-flicker { from { transform: scale(1, 1) skewX(0); } 50% { transform: scale(.94, 1.06) skewX(3deg); } to { transform: scale(1.04, .96) skewX(-2deg); } }
+@keyframes fox-float { from { translate: 0 1px; } to { translate: 0 -3px; } }
+@keyframes fox-blaze { 0%, 100% { transform: scale(1.25); } 50% { transform: scale(1.5) skewX(4deg); } }
+@keyframes fox-kindle { 0%, 100% { opacity: .25; transform: scale(.7); } 50% { opacity: 1; transform: scale(1); } }
+
+@media (max-width: 900px) { .fox-box { width: 240px; } }
 @media (max-width: 680px) { .fox-box { display: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .fox-sway, .fox-tail, .fox-mascot .fox-eyes, .fox-mascot .fox-head { animation: none !important; }
+  .fox-mascot *, .fox-mascot { animation: none !important; transition: none !important; }
+  .fox-look { transform: none; }
+  .fox-zzz text { opacity: .8; }
 }

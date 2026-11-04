@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <!-- Dev preview of the Kitsun fox mascot (not shipped: the packager ignores scripts/). Serve the repo root and open
+       /scripts/fox-preview/ (?n=<tails>, ?mood=<mood> for every tail, ?still=1 to freeze the animation for screenshots). -->
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>Kitsun · Fox preview</title>
+  <link rel="stylesheet" href="../../renderer/styles.css">
+  <style>
+    html, body { overflow: auto; }
+    body { display: grid; grid-template-columns: 1fr 1fr; gap: 0; min-height: 100vh; }
+    .stage { display: grid; place-items: center; padding: 24px; }
+    .stage.lilac { background: #f1e2fc; }
+    .stage .fox-box { width: min(560px, 90%); margin: 0; }
+    .label { position: absolute; font: 12px system-ui; color: #888; margin: 8px; }
+  </style>
+</head>
+<body>
+  <div class="stage lilac" id="a"></div>
+  <div class="stage" id="b"></div>
+  <script src="../../renderer/fox.js"></script>
+  <script src="fox-preview.js"></script>
+</body>
+</html>

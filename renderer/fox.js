@@ -1,14 +1,19 @@
 // Kitsun's fox: a white kitsune wearing its mask markings (a crescent moon, flames, red around the eyes, cheek stripes),
-// outlined in navy. It is the logo mark (the title bar's Home button), the app icon, and Home's mascot: the kitsune sitting
-// with one tail per tab (up to nine, as the legend has it). Each tail's tip is its tab's colour and shows how that tab is
-// doing: swaying while it runs, wagging while Claude works in it, glowing while it needs you, faded while it is closed.
-// Plain SVG built here, so scripts/draw-icon.js can draw the same fox into the app icon.
+// outlined in navy and shaded in lilac, drawn after the flat "cute kitsune" sticker style. It is the logo mark (the title
+// bar's Home button), the app icon, and Home's mascot: the kitsune sitting with one red-tipped tail per tab (up to nine,
+// as the legend has it). Each tab is a foxfire (kitsunebi) floating by its tail's tip, in the tab's colour: it flickers
+// while the tab runs, flares while Claude works in it, blazes while it needs you, and is a faint ember while closed.
+// The fox breathes, follows the pointer with its head, twitches its ears, flicks a tail now and then, hops when clicked,
+// and sleeps when every tab is closed. Plain SVG built here, so scripts/draw-icon.js can draw the same fox into the icon.
 window.KitsunFox = (() => {
   const NS = 'http://www.w3.org/2000/svg';
   const MAX_TAILS = 9;
   const NAVY = '#1f1a5c';
   const RED = '#ff3d5f';
+  const RED_DEEP = '#d8345a';
   const SHADE = '#ddd0e2';
+  const motion = matchMedia('(prefers-reduced-motion: reduce)');
+  let uid = 0;
 
   function svg(tag, attrs = {}, children = []) {
     const n = document.createElementNS(NS, tag);
@@ -16,86 +21,167 @@ window.KitsunFox = (() => {
     for (const c of children) if (c) n.append(c);
     return n;
   }
-  const outline = (w) => ({ stroke: NAVY, 'stroke-width': w, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
+  const line = (w) => ({ stroke: NAVY, 'stroke-width': w, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
   const path = (d, attrs) => svg('path', { d, ...attrs });
+  // Mirrors a path drawn on the left half across the head's centre line (x = 50) or the body's (x = 150).
+  const mirror = (d, axis) => d.replace(/(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g, (_, x, y) => `${+(2 * axis - x).toFixed(2)} ${y}`);
+  const pair = (d, axis, attrs) => [path(d, attrs), path(mirror(d, axis), attrs)];
 
-  // The head on a 64 × 64 grid.
+  // ---------- the head, on a 100 × 100 grid ----------
+
+  const EAR = 'M14 46 C 11 30 13 14 19 4 C 20.5 1.8 23 1.6 24.6 3.2 C 31 9.6 37 17 41 24 L 30 40 Z';
+  const EAR_IN = 'M18.6 36 C 18 24 19.6 14 22.4 8.6 C 27.4 13.6 31.6 19 34.6 24.4 C 28 27 22 31 18.6 36 Z';
+  const FLUFF = 'M15 49 L 3.5 50.5 L 10 55 L 1.5 59.5 L 11 61.5 L 5 67 L 16 66 Z';
+  const FACE = 'M50 19 C 73 19 89 30 91 48 C 92.4 63 85 76 70 84.5 L 50 93.5 L 30 84.5 C 15 76 7.6 63 9 48 C 11 30 27 19 50 19 Z';
+  const FACE_SHADE = 'M9.6 56 C 13 72 26 82 38 87 L 50 92.6 L 62 87 C 74 82 87 72 90.4 56 C 84 74 70 82 50 83 C 30 82 16 74 9.6 56 Z';
+  const MOON = 'M41.5 31 A 8.5 8.5 0 0 0 58.5 31 A 7.4 5.6 0 0 1 41.5 31 Z';
+  const SWOOSH = 'M36.5 27 C 30 31.5 29.4 41 34.6 47.6 C 37.6 51.2 40.8 52.4 42.6 55.4 C 43.2 50.4 40.6 46.6 38.4 43 C 35.8 38.6 35.4 32.6 36.5 27 Z';
+  const DROP = 'M46.4 45 C 44.6 48 45.2 51 47.4 53.2 C 47.9 50.6 47.6 47.8 46.4 45 Z';
+  const PATCH = 'M19.6 52.4 C 26 48.2 35.6 48.8 41.2 54.6 C 38.6 60.8 31 62.8 25 60.6 C 22.4 58.8 20.8 56.2 19.6 52.4 Z';
+  const EYE = 'M23.2 53.8 C 28 51.4 34.6 51.8 38.2 55 C 36 58.6 31 59.8 27 58.6 C 25.4 57.6 24 56 23.2 53.8 Z';
+  const EYE_HAPPY = 'M24 57.4 Q 31 51.4 38 57.4';
+  const EYE_SLEEP = 'M24 55 Q 31 59.8 38 55';
+  const CHEEK = 'M16.6 63.4 Q 21.6 61.2 26.4 63.6 M 18.4 68.4 Q 23.4 66.8 27.6 69.2';
+
   function head() {
     return svg('g', { class: 'fox-head' }, [
-      svg('g', { class: 'fox-ears' }, [
-        path('M10.5 28 C 9.5 19 11 10.5 14 5.5 C 15 4 16.8 4 17.8 5 C 21.3 8.2 24.5 12 27 16', { fill: '#fff', ...outline(1.7) }),
-        path('M53.5 28 C 54.5 19 53 10.5 50 5.5 C 49 4 47.2 4 46.2 5 C 42.7 8.2 39.5 12 37 16', { fill: '#fff', ...outline(1.7) }),
-        path('M13.6 21 C 13.6 15 14.8 11 16.3 8.5 C 18.8 11 21.2 13.8 22.8 16.6 Z', { fill: RED }),
-        path('M50.4 21 C 50.4 15 49.2 11 47.7 8.5 C 45.2 11 42.8 13.8 41.2 16.6 Z', { fill: RED }),
-      ]),
-      path('M32 13 C 44 13 52 20 53.5 30 C 55.2 31 57 32.4 58.8 33.6 C 56.8 34.4 55.4 35 54.2 35.6 C 53.6 44.5 47.5 51 39.5 54.6 L 32 58.6 L 24.5 54.6 C 16.5 51 10.4 44.5 9.8 35.6 C 8.6 35 7.2 34.4 5.2 33.6 C 7 32.4 8.8 31 10.5 30 C 12 20 20 13 32 13 Z', { fill: '#fff', ...outline(1.7) }),
-      path('M10.5 36 C 12 45 18 51 25 54.4 L 32 58.4 L 39 54.4 C 46 51 52 45 53.5 36 C 50 44 44 49 32 50 C 20 49 14 44 10.5 36 Z', { fill: SHADE, opacity: '.7' }),
-      // The mask: a crescent moon, a flame each side and one between the eyes, red around the eyes, cheek stripes.
-      path('M25.6 19.6 A 6.4 6.4 0 0 0 38.4 19.6 A 6.4 3.4 0 0 1 25.6 19.6 Z', { fill: RED }),
-      path('M23.8 25.5 C 20.8 23 20.4 19.8 22.4 17.2 C 22 20.2 23.5 22.8 26.2 24.4 Z', { fill: RED }),
-      path('M40.2 25.5 C 43.2 23 43.6 19.8 41.6 17.2 C 42 20.2 40.5 22.8 37.8 24.4 Z', { fill: RED }),
-      path('M32 26.5 C 33.6 28.4 33.6 30.6 32 32.4 C 30.4 30.6 30.4 28.4 32 26.5 Z', { fill: RED }),
-      path('M14.6 30.4 C 18.8 27.6 24.6 28.2 28.2 31.6 C 26.6 35.2 22 36.6 17.8 35 C 16.2 33.8 15.2 32.4 14.6 30.4 Z', { fill: RED }),
-      path('M49.4 30.4 C 45.2 27.6 39.4 28.2 35.8 31.6 C 37.4 35.2 42 36.6 46.2 35 C 47.8 33.8 48.8 32.4 49.4 30.4 Z', { fill: RED }),
-      svg('g', { class: 'fox-eyes' }, [
-        path('M17.4 31.4 C 20.6 29.9 24.2 30.3 26.4 32 C 24.9 34.2 21.6 34.8 19 34 C 18.2 33.4 17.7 32.5 17.4 31.4 Z', { fill: NAVY }),
-        path('M46.6 31.4 C 43.4 29.9 39.8 30.3 37.6 32 C 39.1 34.2 42.4 34.8 45 34 C 45.8 33.4 46.3 32.5 46.6 31.4 Z', { fill: NAVY }),
-      ]),
-      path('M13.4 38.6 Q 16.4 37.4 19.2 39 M 14.6 42 Q 17.4 41 20 42.8 M50.6 38.6 Q 47.6 37.4 44.8 39 M 49.4 42 Q 46.6 41 44 42.8', { fill: 'none', stroke: RED, 'stroke-width': 2, 'stroke-linecap': 'round' }),
-      path('M29.5 41 C 31 40 33 40 34.5 41 C 34 42.9 32.9 43.8 32 44 C 31.1 43.8 30 42.9 29.5 41 Z', { fill: NAVY }),
-      svg('ellipse', { cx: 31.2, cy: 41.2, rx: 0.9, ry: 0.5, fill: '#fff' }),
-      path('M32 44 L 32 45.4 M 27.4 46 C 28.8 47.6 30.8 47.6 32 45.4 C 33.2 47.6 35.2 47.6 36.6 46', { fill: 'none', ...outline(1.4) }),
+      svg('g', { class: 'fox-ear fox-ear-l' }, [path(EAR, { fill: '#fff', ...line(2) }), path(EAR_IN, { fill: RED })]),
+      svg('g', { class: 'fox-ear fox-ear-r' }, [path(mirror(EAR, 50), { fill: '#fff', ...line(2) }), path(mirror(EAR_IN, 50), { fill: RED })]),
+      // The mask's strap, peeking out between the ears.
+      path('M27 23.6 C 39 16.4 61 16.4 73 23.6', { fill: 'none', stroke: NAVY, 'stroke-width': 5.2, 'stroke-linecap': 'round' }),
+      path('M27 23.6 C 39 16.4 61 16.4 73 23.6', { fill: 'none', stroke: '#fff', 'stroke-width': 2.2, 'stroke-linecap': 'round' }),
+      ...pair(FLUFF, 50, { fill: '#fff', ...line(2) }),
+      path(FACE, { fill: '#fff', ...line(2.2) }),
+      path(FACE_SHADE, { fill: SHADE, opacity: '.75' }),
+      // The mask: a crescent moon framed by two flames, two drops between the eyes, red around the eyes, cheek stripes.
+      path(MOON, { fill: RED }),
+      ...pair(SWOOSH, 50, { fill: RED }),
+      ...pair(DROP, 50, { fill: RED }),
+      ...pair(PATCH, 50, { fill: RED }),
+      svg('g', { class: 'fox-eyes' }, pair(EYE, 50, { fill: NAVY })),
+      // Hidden by attribute, so the icon (drawn without the stylesheet) and the mark never show them; the mascot's CSS
+      // swaps them in for a happy squint or sleep.
+      svg('g', { class: 'fox-eyes-happy', display: 'none' }, pair(EYE_HAPPY, 50, { fill: 'none', ...line(2.6) })),
+      svg('g', { class: 'fox-eyes-sleep', display: 'none' }, pair(EYE_SLEEP, 50, { fill: 'none', ...line(2.6) })),
+      ...pair(CHEEK, 50, { fill: 'none', stroke: RED, 'stroke-width': 2.6, 'stroke-linecap': 'round' }),
+      path('M45.4 64.6 C 48.4 63 51.6 63 54.6 64.6 C 53.8 67.6 51.8 69.4 50 69.8 C 48.2 69.4 46.2 67.6 45.4 64.6 Z', { fill: NAVY }),
+      svg('ellipse', { cx: 48.4, cy: 65.2, rx: 1.4, ry: 0.7, fill: '#fff' }),
+      path('M50 69.8 L 50 71.6 M 41.5 72.4 C 43.6 75.2 47.6 75.4 50 71.6 C 52.4 75.4 56.4 75.2 58.5 72.4', { fill: 'none', ...line(1.8) }),
     ]);
   }
 
   // The small mark: just the head.
   function mark({ size = 22 } = {}) {
-    return svg('svg', { class: 'fox-mark', viewBox: '0 0 64 64', width: size, height: size, 'aria-hidden': 'true' }, [head()]);
+    return svg('svg', { class: 'fox-mark', viewBox: '0 0 100 100', width: size, height: size, 'aria-hidden': 'true' }, [head()]);
   }
 
-  // One tail, rising from its root at (0, 0) to a tip curled to the right 132 up: white fur, a lilac shade, the tip in
-  // the tab's colour with a zigzag edge, and the navy outline on top. Its box spans x -23..18 (the root sits 56% across).
-  const TAIL = 'M0 0 C -11 -14 -23 -40 -23 -70 C -23 -100 -8 -122 10 -132 C 5 -117 13 -101 15 -83 C 18 -50 10 -20 0 0 Z';
-  const TIP = 'M-22.6 -80 L -16 -90 L -13 -80 L -7 -93 L -4 -82 L 2 -95 L 5 -85 L 10 -94 L 15.2 -84 C 13 -101 5 -117 10 -132 C -6 -122 -22 -104 -22.6 -80 Z';
-  const TAIL_SHADE = 'M0 0 C 10 -20 18 -50 15.2 -84 L 9 -82 C 10 -52 6 -22 0 0 Z';
-  // At an angle from straight up, 1.3 times as wide as drawn; the left ones mirrored so every tip curls outwards.
-  const tailAt = (x, y, angle) => `translate(${x} ${y}) rotate(${angle.toFixed(1)}) scale(${angle < 0 ? -1.3 : 1.3} 1)`;
-  const tailParts = () => [
-    path(TAIL, { class: 'fox-tail-fur' }),
-    path(TAIL_SHADE, { class: 'fox-tail-shade' }),
-    path(TIP, { class: 'fox-tail-tip' }),
-    path(TAIL, { class: 'fox-tail-line' }),
-  ];
+  // ---------- the body, in a 300 × 300 frame (the mascot shifts it to the middle of its wider frame) ----------
 
-  // The sitting body in the mascot's 240 × 240 frame: chest with a fluffy collar, front legs with swirls, red paws.
+  const HAUNCH = 'M121 204 C 100 208 89 232 91 260 C 92 273 101 280 113 280 L 124 280 Z';
+  const HAUNCH_SHADE = 'M91.4 254 C 93 270 101 279 113 279 L 121 279 L 119 263 C 108 267 98 263 91.4 254 Z';
+  const HAUNCH_SWIRL = 'M106 246 C 100 246 97.6 240 101.6 236.8 C 105.6 233.6 111 237.6 109 241.8 M 113 224 C 106.6 225 104.6 219 108.6 216';
+  const BACK_PAW = 'M92 280 C 92 271 99 267 106 268 C 112 269 115 274 115 280 Z';
+  const LEG_SWIRL = 'M122 238 C 126 234 131.4 236 130.4 241 C 129.4 245.4 124 245.4 124 241 M 126.4 253 C 122.4 257 124 263 129.4 263';
+  const PAW = 'M117 280 C 117 271 123 267 128 267 C 133 267 138 270 138 280 Z';
+
   function body() {
     return svg('g', { class: 'fox-body' }, [
-      svg('ellipse', { class: 'fox-shadow', cx: 120, cy: 229, rx: 62, ry: 5 }),
-      path('M99 156 C 86 168 82 196 87 226 L 153 226 C 158 196 154 168 141 156 Z', { fill: '#fff', ...outline(2.6) }),
-      path('M105 190 C 103 205 104 216 106 226 M 135 190 C 137 205 136 216 134 226', { fill: 'none', ...outline(2.4) }),
-      path('M104 166 L 110 175 L 114 168 L 120 179 L 126 168 L 130 175 L 136 166', { fill: 'none', stroke: SHADE, 'stroke-width': 2.4, 'stroke-linejoin': 'round' }),
-      path('M94 206 C 91 199 98 194 101 199 M 146 206 C 149 199 142 194 139 199', { fill: 'none', stroke: RED, 'stroke-width': 2.6, 'stroke-linecap': 'round' }),
-      path('M93 230 C 93 222 100 219 106 220 C 112 221 115 225 115 230 Z', { fill: RED, ...outline(2.4) }),
-      path('M125 230 C 125 225 128 221 134 220 C 140 219 147 222 147 230 Z', { fill: RED, ...outline(2.4) }),
+      ...pair(HAUNCH, 150, { fill: '#fff', ...line(2.6) }),
+      ...pair(HAUNCH_SHADE, 150, { fill: SHADE }),
+      ...pair(HAUNCH_SWIRL, 150, { fill: 'none', stroke: RED, 'stroke-width': 3, 'stroke-linecap': 'round' }),
+      ...pair(BACK_PAW, 150, { fill: RED, ...line(2.4) }),
+      path('M118 166 C 111 192 112 236 116 280 L 184 280 C 188 236 189 192 182 166 Z', { fill: '#fff', ...line(2.6) }),
+      path('M137 228 L 163 228 L 163 280 L 137 280 Z', { fill: SHADE, opacity: '.8' }),
+      path('M136 214 C 135 240 135 262 136 280 M 164 214 C 165 240 165 262 164 280', { fill: 'none', ...line(2.4) }),
+      ...pair(LEG_SWIRL, 150, { fill: 'none', stroke: RED, 'stroke-width': 2.8, 'stroke-linecap': 'round' }),
+      // The fluffy bib under the chin.
+      path('M113 172 C 120 159 180 159 187 172 L 182 183 L 176 177 L 172 193 L 164 185 L 158 203 L 150 191 L 142 203 L 136 185 L 128 193 L 124 177 L 118 183 Z', { fill: '#fff', ...line(2.4) }),
+      path('M128 193 L 136 185 L 142 203 L 150 191 L 158 203 L 164 185 L 172 193 L 170 199 L 164 193 L 158 209 L 150 199 L 142 209 L 136 193 L 130 199 Z', { fill: SHADE }),
+      svg('g', { class: 'fox-paws' }, [
+        ...pair(PAW, 150, { fill: RED, ...line(2.4) }),
+        path('M124 274.5 L 124 280 M 131 274.5 L 131 280 M 169 274.5 L 169 280 M 176 274.5 L 176 280', { fill: 'none', ...line(1.8) }),
+      ]),
     ]);
   }
 
-  // Tail angles fanned behind: wider as there are more.
+  // ---------- the tails ----------
+
+  // One tail, rising from its root at (0, 0) to a tip curled to the right 162 up: plump white fur with a lilac shade on
+  // its inner edge, a red flame tip (a zigzag edge, deeper red inside the curl), and the navy outline on top. The fill
+  // shapes overshoot and are clipped to the tail, so they never poke past the outline.
+  const TAIL = 'M0 0 C -24 -18 -40 -56 -38 -96 C -36 -130 -16 -152 10 -162 C 3 -146 12 -130 16 -112 C 22 -76 20 -34 0 0 Z';
+  const TAIL_SHADE = 'M40 -104 L 12 -104 C 15 -66 9 -28 -6 0 L 40 0 Z';
+  const TAIL_TIP = 'M-60 -94 L -30 -106 L -26 -94 L -18 -112 L -12 -98 L -4 -116 L 2 -100 L 9 -114 L 40 -102 L 40 -200 L -60 -200 Z';
+  const TAIL_TIP_DEEP = 'M40 -200 L 6 -158 C -1 -140 6 -122 11 -106 L 40 -106 Z';
+  const ROOT = { x: 190, y: 236 };
+  const TIP_AT = { x: 4, y: -180 }; // where its foxfire floats, just past the tip
+
+  // Fanned behind the fox, wider as there are more: a single tail curls off to one side; nine reach from flat on the
+  // left round to flat on the right.
   function angles(n) {
     if (n <= 0) return [];
-    if (n === 1) return [-40];
-    const spread = Math.min(150, 80 + (n - 2) * 12);
+    if (n === 1) return [-34];
+    const spread = Math.min(170, 56 + (n - 2) * 17);
     return Array.from({ length: n }, (_, i) => -spread / 2 + (i * spread) / (n - 1));
   }
 
-  // The mascot: update(tabs) with [{ id, name, color, mood }], mood one of live | working | needs | starting | stopped |
-  // frozen. onPick(id) runs when a tail is clicked.
+  // A foxfire: a small flame in the tab's colour with a pale core.
+  const WISP = 'M0 -15 C 5 -9 9.5 -3 9.5 3 C 9.5 9.5 5 13.5 0 13.5 C -5 13.5 -9.5 9.5 -9.5 3 C -9.5 -1 -7 -4.5 -4.5 -7 C -4 -3.5 -2 -2 -0.5 -1.5 C -2.5 -6 -1.5 -10.5 0 -15 Z';
+  const WISP_CORE = 'M0 -1 C 3 2 4.4 4.6 4.4 7 C 4.4 9.8 2.4 11.2 0 11.2 C -2.4 11.2 -4.4 9.8 -4.4 7 C -4.4 4.6 -2.6 2.4 0 -1 Z';
+
+  function tail(t, i, angle, clipId, onPick) {
+    const k = 1.42 - 0.3 * (Math.abs(angle) / 90); // the middle ones rise high above the head; the flat outer ones are shorter
+    const m = angle < 0 ? -1 : 1; // the left ones are mirrored, so every tip curls outwards
+    const label = `${t.name}: ${MOOD_TEXT[t.mood] || t.mood}`;
+    const clip = `url(#${clipId})`;
+    // Undo the tail's turn and stretch, so the flame stands upright at its normal size.
+    const wispAt = `translate(${TIP_AT.x} ${TIP_AT.y}) scale(${(1 / (m * k)).toFixed(3)} ${(1 / k).toFixed(3)}) rotate(${(-angle).toFixed(1)})`;
+    const g = svg('g', {
+      class: `fox-tail ${t.mood}`,
+      transform: `translate(${ROOT.x} ${ROOT.y}) rotate(${angle.toFixed(1)}) scale(${m * k} ${k})`,
+      style: `--c:${t.color};--d:${(i * 0.37).toFixed(2)}s`,
+      tabindex: onPick ? '0' : null, role: onPick ? 'button' : null, 'aria-label': label,
+    }, [svg('title'), svg('g', { class: 'fox-sway' }, [
+      path(TAIL, { fill: '#fff' }),
+      path(TAIL_SHADE, { fill: SHADE, 'clip-path': clip }),
+      svg('g', { class: 'fox-tail-tip' }, [
+        path(TAIL_TIP, { fill: RED, 'clip-path': clip }),
+        path(TAIL_TIP_DEEP, { fill: RED_DEEP, 'clip-path': clip }),
+      ]),
+      path(TAIL, { class: 'fox-tail-line', fill: 'none', ...line(2.6) }),
+      svg('g', { transform: wispAt }, [svg('g', { class: 'fox-wisp' }, [
+        path(WISP, { class: 'fox-wisp-flame', fill: t.color, ...line(1.4) }),
+        path(WISP_CORE, { fill: '#fff', opacity: '.78' }),
+      ])]),
+    ])]);
+    g.firstChild.textContent = label;
+    if (onPick) {
+      g.addEventListener('click', (e) => { e.stopPropagation(); onPick(t.id); });
+      g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(t.id); } });
+    }
+    return g;
+  }
+
+  // ---------- the mascot ----------
+
+  // update(tabs) with [{ id, name, color, mood }], mood one of live | working | needs | starting | stopped | frozen.
+  // onPick(id) runs when a tail is clicked.
   function mascot({ onPick = null } = {}) {
+    const clipId = `fox-tail-clip-${++uid}`;
     const tails = svg('g', { class: 'fox-tails' });
-    const root = svg('svg', { class: 'fox-mascot', viewBox: '0 0 240 240', role: 'img' }, [
-      tails,
-      body(),
-      svg('g', { transform: 'translate(65.6 66.4) scale(1.7)' }, [head()]),
+    const zzz = svg('g', { class: 'fox-zzz', 'aria-hidden': 'true' }, [0, 1, 2].map((n) =>
+      svg('text', { x: 236 + n * 9, y: 92 - n * 10, style: `--z:${n}`, 'font-size': 14 + n * 4 }, [document.createTextNode('z')])));
+    // Taller than the body's frame: the middle tails and their foxfire rise up to 34 above it.
+    const root = svg('svg', { class: 'fox-mascot', viewBox: '0 -34 380 334', role: 'img' }, [
+      svg('defs', {}, [svg('clipPath', { id: clipId }, [path(TAIL)])]),
+      svg('ellipse', { class: 'fox-shadow', cx: 190, cy: 284, rx: 150, ry: 8 }),
+      svg('g', { class: 'fox-breath' }, [
+        tails,
+        svg('g', { transform: 'translate(40 0)' }, [body()]),
+        // Two wrappers: the outer places the head, the inner moves it (follows the pointer, tilts, perks up).
+        svg('g', { transform: 'translate(127.5 59) scale(1.25)' }, [svg('g', { class: 'fox-look' }, [svg('g', { class: 'fox-idle' }, [head()])])]),
+      ]),
+      zzz,
     ]);
     const box = document.createElement('div');
     box.className = 'fox-box';
@@ -110,19 +196,7 @@ window.KitsunFox = (() => {
       const a = angles(shown.length);
       // Outer tails first, so the middle ones lie on top, nearest the body.
       const order = shown.map((t, i) => ({ t, i, angle: a[i] })).sort((x, y) => Math.abs(y.angle) - Math.abs(x.angle));
-      tails.replaceChildren(...order.map(({ t, i, angle }) => {
-        const label = `${t.name}: ${MOOD_TEXT[t.mood] || t.mood}`;
-        const g = svg('g', {
-          class: `fox-tail ${t.mood}`, transform: tailAt(120, 176, angle),
-          style: `--c:${t.color};--d:${(i * 0.37).toFixed(2)}s`, tabindex: onPick ? '0' : null, role: onPick ? 'button' : null, 'aria-label': label,
-        }, [svg('title'), svg('g', { class: 'fox-sway' }, tailParts())]);
-        g.firstChild.textContent = label;
-        if (onPick) {
-          g.addEventListener('click', () => onPick(t.id));
-          g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(t.id); } });
-        }
-        return g;
-      }));
+      tails.replaceChildren(...order.map(({ t, i, angle }) => tail(t, i, angle, clipId, onPick)));
       const needs = shown.filter((t) => t.mood === 'needs').length;
       const working = shown.filter((t) => t.mood === 'working').length;
       root.classList.toggle('fox-alert', needs > 0);
@@ -132,6 +206,55 @@ window.KitsunFox = (() => {
       root.setAttribute('aria-label', !tabs.length ? 'Kitsun the fox, no tabs yet'
         : `Kitsun the fox with ${shown.length} tail${shown.length === 1 ? '' : 's'}, one per tab${more}${needs ? `; ${needs} need${needs === 1 ? 's' : ''} you` : ''}`);
     }
+
+    // A short one-off move: the class is set, its CSS animation plays, and it is taken off again.
+    function act(name, ms, target = root) {
+      target.classList.remove(name);
+      void target.getBoundingClientRect(); // restart the animation if it is already playing
+      target.classList.add(name);
+      setTimeout(() => target.classList.remove(name), ms);
+    }
+
+    // Now and then, while it is on screen and awake: a head tilt, an ear twitch, a tail flick or a double blink.
+    const IDLE = [
+      () => act('fox-tilt', 1600),
+      () => act(Math.random() < 0.5 ? 'fox-twitch-l' : 'fox-twitch-r', 700),
+      () => {
+        const list = tails.querySelectorAll('.fox-tail:not(.stopped)');
+        if (list.length) act('flick', 900, list[Math.floor(Math.random() * list.length)]);
+      },
+      () => act('fox-blink2', 900),
+    ];
+    let lastIdle = -1;
+    (function idle() {
+      setTimeout(() => {
+        if (root.isConnected && !document.hidden && !motion.matches && !root.classList.contains('fox-asleep')) {
+          let n = Math.floor(Math.random() * IDLE.length);
+          if (n === lastIdle) n = (n + 1) % IDLE.length;
+          lastIdle = n;
+          IDLE[n]();
+        }
+        idle();
+      }, 3500 + Math.random() * 4500);
+    })();
+
+    // The head follows the pointer a little, wherever it is in the window.
+    let frame = 0;
+    window.addEventListener('pointermove', (e) => {
+      if (frame || motion.matches || !root.isConnected) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const r = root.getBoundingClientRect();
+        if (!r.width) return;
+        const lx = Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / (r.width * 1.6)));
+        const ly = Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height * 0.35)) / (r.height * 1.6)));
+        root.style.setProperty('--lx', lx.toFixed(3));
+        root.style.setProperty('--ly', ly.toFixed(3));
+      });
+    }, { passive: true });
+
+    // Clicking the fox itself (not a tail) makes it hop for joy.
+    root.addEventListener('click', () => { if (!motion.matches) act('fox-hop', 900); });
 
     return { node: box, update };
   }
@@ -148,7 +271,7 @@ window.KitsunFox = (() => {
     return svg('svg', { xmlns: NS, viewBox: '0 0 256 256', width: 256, height: 256 }, [
       svg('defs', {}, [bg]),
       svg('rect', { x: 8, y: 8, width: 240, height: 240, rx: 56, fill: 'url(#ic-bg)' }),
-      svg('g', { transform: 'translate(36 30) scale(2.88)' }, [head()]),
+      svg('g', { transform: 'translate(18 22) scale(2.2)' }, [head()]),
     ]);
   }
 
